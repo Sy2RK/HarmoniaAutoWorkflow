@@ -20,11 +20,15 @@ const navItems = [
   { to: "/settings", label: "配置", icon: SlidersHorizontal }
 ];
 
-export function Layout() {
+export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
   const navigate = useNavigate();
   const logout = async () => {
-    await api.logout();
-    navigate("/login");
+    try {
+      await api.logout();
+    } finally {
+      onLoggedOut();
+      navigate("/login", { replace: true });
+    }
   };
 
   return (

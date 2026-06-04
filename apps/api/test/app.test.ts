@@ -55,6 +55,16 @@ const mailer: OutboundMailer = {
   }
 };
 
+async function loginCookie(app: Awaited<ReturnType<typeof buildApp>>): Promise<string> {
+  const login = await app.inject({
+    method: "POST",
+    url: "/auth/login",
+    payload: { email: "admin@example.edu.cn", password: "ChangeMe123!" }
+  });
+  expect(login.statusCode).toBe(200);
+  return String(login.headers["set-cookie"]);
+}
+
 describe("app auth", () => {
   it("protects backend pages and accepts local password login", async () => {
     const repo = new InMemoryRepository("public@example.edu.cn");
@@ -75,6 +85,99 @@ describe("app auth", () => {
 
     const dashboard = await app.inject({ method: "GET", url: "/dashboard", headers: { cookie: String(cookie) } });
     expect(dashboard.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("sets secure session cookies in production by default", async () => {
+    const repo = new InMemoryRepository("public@example.edu.cn");
+    await repo.ensureAdminUser("admin@example.edu.cn", await hashPassword("ChangeMe123!"));
+    const app = await buildApp({
+      env: { ...env, NODE_ENV: "production" },
+      repo,
+      ai: new NoopAiClient(),
+      mailer,
+      graph,
+      attachmentRoot: "storage/attachments"
+    });
+
+    const cookie = await loginCookie(app);
+
+    expect(cookie).toContain("Secure");
+    await app.close();
+  });
+
+  it("blocks terminal draft edits and sends", async () => {
+    const repo = new InMemoryRepository("public@example.edu.cn");
+    await repo.ensureAdminUser("admin@example.edu.cn", await hashPassword("ChangeMe123!"));
+    const message = await repo.upsertMessage({
+      mailboxAddress: "public@example.edu.cn",
+      graphMessageId: "draft-gate-1",
+      internetMessageId: null,
+      conversationId: null,
+      subject: "毕业退宿申请",
+      senderName: "张三",
+      senderEmail: "student@example.com",
+      toRecipients: ["public@example.edu.cn"],
+      ccRecipients: [],
+      receivedAt: "2026-06-03T00:00:00.000Z",
+      bodyText: "姓名：张三",
+      hasAttachments: false
+    });
+    const draft = await repo.createDraft({
+      messageId: message.id,
+      toEmail: message.senderEmail,
+      ccEmails: [],
+      subject: "Re: 毕业退宿申请",
+      body: "已发送",
+      status: "sent"
+    });
+    const app = await buildApp({ env, repo, ai: new NoopAiClient(), mailer, graph, attachmentRoot: "storage/attachments" });
+    const cookie = await loginCookie(app);
+
+    const save = await app.inject({
+      method: "PATCH",
+      url: `/drafts/${draft.id}`,
+      headers: { cookie },
+      payload: { body: "try again" }
+    });
+    const send = await app.inject({ method: "POST", url: `/drafts/${draft.id}/send`, headers: { cookie } });
+
+    expect(save.statusCode).toBe(409);
+    expect(save.json()).toMatchObject({ error: "DRAFT_NOT_EDITABLE", status: "sent" });
+    expect(send.statusCode).toBe(409);
+    expect(send.json()).toMatchObject({ error: "DRAFT_NOT_SENDABLE", status: "sent" });
+    await app.close();
+  });
+
+  it("blocks manual processing for already completed messages", async () => {
+    const repo = new InMemoryRepository("public@example.edu.cn");
+    await repo.ensureAdminUser("admin@example.edu.cn", await hashPassword("ChangeMe123!"));
+    const message = await repo.upsertMessage({
+      mailboxAddress: "public@example.edu.cn",
+      graphMessageId: "process-gate-1",
+      internetMessageId: null,
+      conversationId: null,
+      subject: "毕业退宿申请",
+      senderName: "张三",
+      senderEmail: "student@example.com",
+      toRecipients: ["public@example.edu.cn"],
+      ccRecipients: [],
+      receivedAt: "2026-06-03T00:00:00.000Z",
+      bodyText: "姓名：张三",
+      hasAttachments: false
+    });
+    await repo.updateMessageProcessing(message.id, {
+      status: "completed",
+      needsReview: false,
+      processedAt: "2026-06-03T01:00:00.000Z"
+    });
+    const app = await buildApp({ env, repo, ai: new NoopAiClient(), mailer, graph, attachmentRoot: "storage/attachments" });
+    const cookie = await loginCookie(app);
+
+    const response = await app.inject({ method: "POST", url: `/messages/${message.id}/process`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: "MESSAGE_ALREADY_PROCESSED", status: "completed" });
     await app.close();
   });
 });

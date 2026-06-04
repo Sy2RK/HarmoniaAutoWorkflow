@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Ban, Check, Save, SendHorizontal, UserRoundCheck } from "lucide-react";
-import type { ReplyDraft } from "@harmonia/shared";
+import type { DraftStatus, ReplyDraft } from "@harmonia/shared";
 import { api } from "../api/client.js";
 import { Loading } from "../components/Loading.js";
 import { PageHeader } from "../components/PageHeader.js";
+
+const pendingDraftStatuses: DraftStatus[] = ["draft", "saved", "manual_required"];
 
 export function DraftReviewPage() {
   const [drafts, setDrafts] = useState<ReplyDraft[]>([]);
@@ -12,9 +14,12 @@ export function DraftReviewPage() {
   const [notice, setNotice] = useState("");
 
   const load = async () => {
-    const result = await api.drafts();
-    setDrafts(result.items);
-    setBodies(Object.fromEntries(result.items.map((draft) => [draft.id, draft.body])));
+    const results = await Promise.all(pendingDraftStatuses.map((status) => api.drafts(status)));
+    const items = results
+      .flatMap((result) => result.items)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    setDrafts(items);
+    setBodies(Object.fromEntries(items.map((draft) => [draft.id, draft.body])));
     setLoading(false);
   };
 
@@ -76,7 +81,12 @@ export function DraftReviewPage() {
                 <Check size={17} />
                 <span>无需回复</span>
               </button>
-              <button className="icon-text" type="button" onClick={() => act("已转人工处理", () => api.markManual(draft.id))}>
+              <button
+                className="icon-text"
+                type="button"
+                disabled={draft.status === "manual_required"}
+                onClick={() => act("已转人工处理", () => api.markManual(draft.id))}
+              >
                 <UserRoundCheck size={17} />
                 <span>转人工</span>
               </button>

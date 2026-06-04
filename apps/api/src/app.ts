@@ -4,12 +4,14 @@ import cors from "@fastify/cors";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  draftStatuses,
   mailCategories,
   processingStatuses,
   type AppSettings,
   type BusinessOwnerConfig,
   type DraftStatus,
-  type KnowledgeEntry
+  type KnowledgeEntry,
+  type ProcessingStatus
 } from "@harmonia/shared";
 import { clearSessionCookie, createSessionToken, readSession, requireAuth, setSessionCookie, verifyPassword } from "./auth/session.js";
 import { processMessage } from "./business/processor.js";
@@ -73,8 +75,19 @@ const knowledgeSchema = z.object({
   enabled: z.boolean().default(true)
 });
 
+const draftQuerySchema = z.object({
+  status: z.enum(draftStatuses).optional()
+});
+
+const editableDraftStatuses = new Set<DraftStatus>(["draft", "saved", "manual_required"]);
+const reprocessableMessageStatuses = new Set<ProcessingStatus>(["new", "failed"]);
+
+function sessionCookieSecure(env: Env): boolean {
+  return env.SESSION_COOKIE_SECURE ?? env.NODE_ENV === "production";
+}
+
 export async function buildApp(options: BuildAppOptions) {
-  const app = Fastify({ logger: options.env.NODE_ENV !== "test" });
+  const app = Fastify({ logger: options.env.NODE_ENV !== "test" && process.env.NODE_ENV !== "test" });
   await app.register(cookie);
   await app.register(cors, {
     origin: options.env.WEB_ORIGIN,
@@ -100,12 +113,12 @@ export async function buildApp(options: BuildAppOptions) {
       return reply.code(401).send({ error: "INVALID_CREDENTIALS" });
     }
     const token = createSessionToken(user, options.env.SESSION_SECRET);
-    setSessionCookie(reply, token);
+    setSessionCookie(reply, token, sessionCookieSecure(options.env));
     return { user: { id: user.id, email: user.email, role: user.role } };
   });
 
   app.post("/auth/logout", async (_request, reply) => {
-    clearSessionCookie(reply);
+    clearSessionCookie(reply, sessionCookieSecure(options.env));
     return { ok: true };
   });
 
@@ -146,14 +159,16 @@ export async function buildApp(options: BuildAppOptions) {
     const params = z.object({ id: z.string() }).parse(request.params);
     const message = await options.repo.getMessage(params.id);
     if (!message) return reply.code(404).send({ error: "MESSAGE_NOT_FOUND" });
+    if (!reprocessableMessageStatuses.has(message.status)) {
+      return reply.code(409).send({ error: "MESSAGE_ALREADY_PROCESSED", status: message.status });
+    }
     const processed = await processMessage(options, message);
     return { message: processed };
   });
 
   app.get("/drafts", async (request) => {
-    const query = z.object({ status: z.string().optional() }).parse(request.query);
-    const status = query.status as DraftStatus | undefined;
-    const items = await options.repo.listDrafts(status);
+    const query = draftQuerySchema.parse(request.query);
+    const items = await options.repo.listDrafts(query.status);
     return { items, total: items.length };
   });
 
@@ -162,6 +177,9 @@ export async function buildApp(options: BuildAppOptions) {
     const body = z.object({ body: z.string().min(1) }).parse(request.body);
     const draft = await options.repo.getDraft(params.id);
     if (!draft) return reply.code(404).send({ error: "DRAFT_NOT_FOUND" });
+    if (!editableDraftStatuses.has(draft.status)) {
+      return reply.code(409).send({ error: "DRAFT_NOT_EDITABLE", status: draft.status });
+    }
     const updated = await options.repo.updateDraft(params.id, { body: body.body, status: "saved" });
     await options.repo.addAudit({
       messageId: draft.messageId,
@@ -176,6 +194,9 @@ export async function buildApp(options: BuildAppOptions) {
     const params = z.object({ id: z.string() }).parse(request.params);
     const draft = await options.repo.getDraft(params.id);
     if (!draft) return reply.code(404).send({ error: "DRAFT_NOT_FOUND" });
+    if (!editableDraftStatuses.has(draft.status)) {
+      return reply.code(409).send({ error: "DRAFT_NOT_SENDABLE", status: draft.status });
+    }
     const message = await options.repo.getMessage(draft.messageId);
     if (!message) return reply.code(404).send({ error: "MESSAGE_NOT_FOUND" });
     const settings = await options.repo.getSettings();
@@ -218,6 +239,9 @@ export async function buildApp(options: BuildAppOptions) {
     const params = z.object({ id: z.string() }).parse(request.params);
     const draft = await options.repo.getDraft(params.id);
     if (!draft) return reply.code(404).send({ error: "DRAFT_NOT_FOUND" });
+    if (!editableDraftStatuses.has(draft.status)) {
+      return reply.code(409).send({ error: "DRAFT_NOT_REJECTABLE", status: draft.status });
+    }
     const updated = await options.repo.updateDraft(draft.id, { status: "rejected" });
     await options.repo.updateMessageProcessing(draft.messageId, {
       status: "manual_required",
@@ -237,6 +261,9 @@ export async function buildApp(options: BuildAppOptions) {
     const params = z.object({ id: z.string() }).parse(request.params);
     const draft = await options.repo.getDraft(params.id);
     if (!draft) return reply.code(404).send({ error: "DRAFT_NOT_FOUND" });
+    if (!editableDraftStatuses.has(draft.status)) {
+      return reply.code(409).send({ error: "DRAFT_NOT_EDITABLE", status: draft.status });
+    }
     const updated = await options.repo.updateDraft(draft.id, { status: "manual_required" });
     await options.repo.updateMessageProcessing(draft.messageId, {
       status: "manual_required",
@@ -256,6 +283,9 @@ export async function buildApp(options: BuildAppOptions) {
     const params = z.object({ id: z.string() }).parse(request.params);
     const draft = await options.repo.getDraft(params.id);
     if (!draft) return reply.code(404).send({ error: "DRAFT_NOT_FOUND" });
+    if (!editableDraftStatuses.has(draft.status)) {
+      return reply.code(409).send({ error: "DRAFT_NOT_COMPLETABLE", status: draft.status });
+    }
     const updated = await options.repo.updateDraft(draft.id, { status: "no_reply_needed" });
     await options.repo.updateMessageProcessing(draft.messageId, { status: "completed", needsReview: false });
     await options.repo.addAudit({

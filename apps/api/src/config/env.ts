@@ -20,6 +20,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().default("http://localhost:5173"),
   SESSION_SECRET: z.string().min(24).default("dev-session-secret-change-before-production"),
+  SESSION_COOKIE_SECURE: envBoolean.optional(),
   APP_TIMEZONE: z.string().default("Asia/Shanghai"),
   DATABASE_URL: z.string().default("postgres://harmonia:harmonia@localhost:5432/harmonia"),
   ADMIN_EMAIL: z.string().email().default("admin@example.edu.cn"),

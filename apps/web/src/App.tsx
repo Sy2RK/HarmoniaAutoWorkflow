@@ -11,10 +11,10 @@ import { MessageDetailPage } from "./pages/MessageDetailPage.js";
 import { MessagesPage } from "./pages/MessagesPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 
-function RequireAuth({ userKnown }: { userKnown: boolean }) {
+function RequireAuth({ userKnown, onLoggedOut }: { userKnown: boolean; onLoggedOut: () => void }) {
   const location = useLocation();
   if (!userKnown) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
-  return <Layout />;
+  return <Layout onLoggedOut={onLoggedOut} />;
 }
 
 export function App() {
@@ -44,7 +44,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage onLoggedIn={() => setUserKnown(true)} />} />
-      <Route element={<RequireAuth userKnown={userKnown} />}>
+      <Route element={<RequireAuth userKnown={userKnown} onLoggedOut={() => setUserKnown(false)} />}>
         <Route index element={<DashboardPage />} />
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/messages/:id" element={<MessageDetailPage />} />

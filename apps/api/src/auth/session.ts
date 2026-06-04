@@ -54,18 +54,18 @@ export function verifySessionToken(token: string, secret: string): SessionPayloa
   }
 }
 
-export function setSessionCookie(reply: FastifyReply, token: string): void {
+export function setSessionCookie(reply: FastifyReply, token: string, secure = false): void {
   reply.setCookie(cookieName, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure,
     path: "/",
     maxAge: 60 * 60 * 12
   });
 }
 
-export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie(cookieName, { path: "/" });
+export function clearSessionCookie(reply: FastifyReply, secure = false): void {
+  reply.clearCookie(cookieName, { path: "/", secure });
 }
 
 export function readSession(request: FastifyRequest, secret: string): SessionPayload | null {

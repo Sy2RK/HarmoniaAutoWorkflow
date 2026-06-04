@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AttachmentRecord,
   DashboardSummary,
+  DraftStatus,
   ForwardRecord,
   KnowledgeEntry,
   MailMessage,
@@ -55,7 +56,7 @@ export const api = {
   messages: (query = "") => request<ApiListResponse<MailMessage>>(`/messages${query}`),
   messageDetail: (id: string) => request<MessageDetail>(`/messages/${id}`),
   processMessage: (id: string) => request<{ message: MailMessage }>(`/messages/${id}/process`, { method: "POST" }),
-  drafts: () => request<ApiListResponse<ReplyDraft>>("/drafts"),
+  drafts: (status?: DraftStatus) => request<ApiListResponse<ReplyDraft>>(`/drafts${status ? `?status=${status}` : ""}`),
   saveDraft: (id: string, body: string) =>
     request<{ draft: ReplyDraft }>(`/drafts/${id}`, { method: "PATCH", body: JSON.stringify({ body }) }),
   sendDraft: (id: string) => request<{ draft: ReplyDraft; message: MailMessage }>(`/drafts/${id}/send`, { method: "POST" }),

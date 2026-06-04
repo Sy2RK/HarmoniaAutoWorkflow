@@ -1,6 +1,6 @@
 # Code Review And Git Agent Handbook
 
-Last updated: 2026-06-04 12:24:00 CST
+Last updated: 2026-06-04 13:31:00 CST
 
 This document is the code-review and Git coordination record for Harmonia Auto Workflow. Code review / release agents should read this before preparing commits, changing repository hygiene, pushing to GitHub, or declaring the project ready for handoff.
 
@@ -37,21 +37,14 @@ Harmonia Auto Workflow is an internal college Outlook public mailbox automation 
 
 ## Current Progress
 
-- Read root project structure, README, package manifests, `.gitignore`, existing frontend/backend agent handbooks, backend workflow code, database repository code, external Graph/AI/mail adapters, frontend API client, key frontend pages, and API tests.
-- Confirmed current directory is not a Git repository yet.
-- Created this code-review/Git coordination document.
-- Ran a redacted sensitive-file scan: `.env` exists locally and contains runtime keys/credentials by variable name, but values were not printed; no token or attachment files were found under `storage`.
-- Ran the full review gate successfully: `pnpm review`.
-- Tightened `.gitignore` to cover nested dependencies, generated artifacts, local env files, tool caches, logs, and runtime storage while keeping `.env.example` and `storage/.gitkeep`.
-- Initialized Git on branch `main` and added `origin` remote `https://github.com/Sy2RK/HarmoniaAutoWorkflow.git`.
-- Verified ignore behavior: `.env`, nested dependencies, `dist`, `dist-types`, token cache paths, and generated package dist outputs are ignored; `.env.example` and `storage/.gitkeep` remain visible for commit.
-- Staged the initial repository file set and confirmed no ignored/generated/runtime-secret paths are staged.
-- Ran staged sensitive-content checks. Only variable-name/config-reference files matched broad keywords; common real token/private-key patterns had no matches.
-- Recorded initial code review findings below. No functional fixes were applied in this pass except repository hygiene and documentation.
-- Created the local initial commit.
-- Git initially auto-derived a local hostname email for the committer; repository-local Git identity was reset to `Sy2RK` / `Sy2RK@users.noreply.github.com`, and the commit was amended before push.
-- Pushed the sanitized initial snapshot to `origin/main` after one transient HTTP 408 retry.
-- Next step: keep this document updated for any follow-up code review fixes or Git submissions.
+- Starting follow-up fix pass for the four initial code review findings.
+- Confirmed the worktree is clean on `main...origin/main`.
+- Implemented backend draft lifecycle state gates, manual process idempotency gate, configurable secure session cookie, and quiet test-process logging.
+- Implemented frontend pending-only draft review loading/actions, logout auth-state reset, and disabled manual reprocess action for non-reprocessable message states.
+- Added API tests for secure production cookies, terminal draft action blocking, and completed-message reprocess blocking.
+- Ran targeted validation: API tests, API typecheck, and web typecheck passed.
+- Ran full validation gate: `pnpm review` passed.
+- Next step: final staged sensitive-content check, commit, and push the fix.
 
 ## Initial Code Review Findings
 
@@ -126,3 +119,32 @@ Harmonia Auto Workflow is an internal college Outlook public mailbox automation 
 - First push attempt to `origin/main` failed with a transient GitHub HTTP 408 and did not create a remote head.
 - Retried `git push -u origin main`; push succeeded and local `main` now tracks `origin/main`.
 - This progress update records the completed Git submission for other agents.
+
+### 2026-06-04 12:30:00 CST
+
+- User requested completion of the previously identified fixes.
+- Rechecked `git status --short --branch`; worktree is clean and local `main` tracks `origin/main`.
+- Planned implementation: add backend guards for draft actions and message reprocessing, make session cookie secure behavior configurable, restrict frontend draft review to actionable drafts, and clear top-level auth state on logout.
+
+### 2026-06-04 13:28:00 CST
+
+- Backend changes:
+  - Added shared enum validation for `/drafts?status=`.
+  - Added editable/sendable draft state guards so terminal drafts cannot be saved, sent, rejected, marked manual, or marked no-reply.
+  - Added `MESSAGE_ALREADY_PROCESSED` 409 guard so manual `POST /messages/:id/process` only runs for `new` and `failed` messages.
+  - Added `SESSION_COOKIE_SECURE` support; cookie `Secure` defaults to true when `NODE_ENV=production`, unless explicitly configured.
+  - Kept unit-test process logs quiet even when a test constructs a production-like app config.
+- Frontend changes:
+  - Draft review loads only `draft`, `saved`, and `manual_required` drafts through status-filtered API calls.
+  - Manual-required drafts no longer show an enabled duplicate "mark manual" action.
+  - Logout now notifies the top-level app shell to clear auth state before navigating to `/login`.
+  - Message detail only enables manual reprocess for `new` and `failed` statuses and surfaces API errors.
+- Test changes:
+  - Added API coverage for production secure cookies, terminal draft action blocking, and completed-message reprocess blocking.
+  - Targeted validation passed: `pnpm --filter @harmonia/api test`, `pnpm --filter @harmonia/api typecheck`, and `pnpm --filter @harmonia/web typecheck`.
+
+### 2026-06-04 13:31:00 CST
+
+- Ran full `pnpm review`; lint, typecheck, tests, and build all passed.
+- Reviewed the diff and confirmed the change set is scoped to the four review fixes, API tests, `.env.example` cookie documentation, and this progress document.
+- Confirmed generated build outputs and local `.env` remain ignored.

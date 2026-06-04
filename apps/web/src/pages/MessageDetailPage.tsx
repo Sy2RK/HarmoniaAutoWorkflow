@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { RefreshCw, Save, SendHorizontal } from "lucide-react";
+import type { ProcessingStatus } from "@harmonia/shared";
 import type { MessageDetail } from "../api/client.js";
 import { api } from "../api/client.js";
 import { Loading } from "../components/Loading.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { CategoryBadge, StatusBadge } from "../components/StatusBadge.js";
+
+const reprocessableStatuses = new Set<ProcessingStatus>(["new", "failed"]);
 
 export function MessageDetailPage() {
   const { id } = useParams();
@@ -33,6 +36,8 @@ export function MessageDetailPage() {
       await api.processMessage(id);
       await load();
       setNotice("已重新处理");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -68,6 +73,7 @@ export function MessageDetailPage() {
   };
 
   if (!detail) return <Loading label="读取邮件详情" />;
+  const canProcess = reprocessableStatuses.has(detail.message.status);
 
   return (
     <section>
@@ -75,7 +81,7 @@ export function MessageDetailPage() {
         title="邮件详情"
         meta={detail.message.subject}
         actions={
-          <button className="icon-text" type="button" onClick={process} disabled={busy} title="重新处理">
+          <button className="icon-text" type="button" onClick={process} disabled={busy || !canProcess} title="重新处理">
             <RefreshCw size={17} />
             <span>处理</span>
           </button>
