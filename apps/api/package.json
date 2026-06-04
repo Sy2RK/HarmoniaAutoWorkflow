@@ -1,0 +1,32 @@
+{
+  "name": "@harmonia/api",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "pnpm --filter @harmonia/shared build && tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/apps/api/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "graph:login": "tsx scripts/graph-login.ts"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^3.7.1",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.0.1",
+    "@harmonia/shared": "workspace:*",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.5.0",
+    "fastify": "^5.3.3",
+    "openai": "^5.1.0",
+    "pg": "^8.16.0",
+    "zod": "^3.25.48"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.4",
+    "tsx": "^4.19.4",
+    "vitest": "^3.2.1"
+  }
+}

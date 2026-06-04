@@ -1,0 +1,21 @@
+{
+  "name": "harmonia-auto-workflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "学院 Outlook 公共邮箱自动化系统初版工程",
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @harmonia/api --filter @harmonia/web dev",
+    "dev:api": "pnpm --filter @harmonia/api dev",
+    "dev:web": "pnpm --filter @harmonia/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "review": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3"
+  }
+}
