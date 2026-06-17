@@ -23,7 +23,7 @@ This document is the code-review and Git coordination record for Harmonia Auto W
 ## Repository Target
 
 - GitHub repository requested by user: `https://github.com/Sy2RK/HarmoniaAutoWorkflow.git`
-- Current local state: project directory is not yet initialized as a Git repository; `git status` and `git remote -v` fail until `.git` is created or the project is cloned into a Git worktree.
+- Current local state: local `main` is initialized and tracks `origin/main`.
 
 ## Product And Architecture Summary
 
@@ -37,14 +37,12 @@ Harmonia Auto Workflow is an internal college Outlook public mailbox automation 
 
 ## Current Progress
 
-- Starting follow-up fix pass for the four initial code review findings.
-- Confirmed the worktree is clean on `main...origin/main`.
-- Implemented backend draft lifecycle state gates, manual process idempotency gate, configurable secure session cookie, and quiet test-process logging.
-- Implemented frontend pending-only draft review loading/actions, logout auth-state reset, and disabled manual reprocess action for non-reprocessable message states.
-- Added API tests for secure production cookies, terminal draft action blocking, and completed-message reprocess blocking.
-- Ran targeted validation: API tests, API typecheck, and web typecheck passed.
-- Ran full validation gate: `pnpm review` passed.
-- Next step: final staged sensitive-content check, commit, and push the fix.
+- Reviewed the current scholarship-check implementation against the backend/frontend requirements.
+- Reverted PDF page limiting per user direction; scholarship proof PDFs must be rendered and reviewed in full.
+- Fixed review findings around local private `ScholarshipCheck/` materials and tests depending on those private materials.
+- Added `ScholarshipCheck/` to `.gitignore` so local applicant materials are not staged accidentally.
+- Current environment lacks `node`, `npm`, `pnpm`, and `corepack` on PATH, so `pnpm review` cannot be run locally in this desktop session.
+- Next step: run `pnpm review` in an environment with Node/pnpm, then perform final staged sensitive-content checks before commit.
 
 ## Initial Code Review Findings
 
@@ -148,3 +146,12 @@ Harmonia Auto Workflow is an internal college Outlook public mailbox automation 
 - Ran full `pnpm review`; lint, typecheck, tests, and build all passed.
 - Reviewed the diff and confirmed the change set is scoped to the four review fixes, API tests, `.env.example` cookie documentation, and this progress document.
 - Confirmed generated build outputs and local `.env` remain ignored.
+
+### 2026-06-16
+
+- Re-reviewed the scholarship material check module against `docs/scholarship-check-backend-agent.md` and `docs/scholarship-check-frontend-agent.md`.
+- Initially added PDF page limiting, then reverted it per user direction because scholarship proof PDFs must be reviewed in full.
+- Replaced scholarship backend tests that read local `ScholarshipCheck/` applicant data with generated sanitized workbook/PDF fixtures.
+- Added `.gitignore` coverage for local `ScholarshipCheck/` materials after confirming hundreds of applicant files were untracked.
+- Ran `git diff --check`; only CRLF normalization warnings appeared.
+- Attempted `pnpm review`, but this desktop environment has no `node`, `npm`, `pnpm`, or `corepack` on PATH.

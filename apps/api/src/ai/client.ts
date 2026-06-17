@@ -10,11 +10,36 @@ export type AwardInfo = {
   confidence: number;
 };
 
+export type ScholarshipEvidenceImage = {
+  fileName: string;
+  pageNumber: number | null;
+  dataUrl: string;
+};
+
+export type ScholarshipEvidenceVerificationInput = {
+  applicantName: string;
+  studentId: string;
+  categoryLabel: string;
+  declaredText: string;
+  fileNames: string[];
+  images: ScholarshipEvidenceImage[];
+};
+
+export type ScholarshipEvidenceVerification = {
+  supported: boolean;
+  confidence: number;
+  summary: string;
+  issues: string[];
+  matchedItems: string[];
+  missingItems: string[];
+};
+
 export interface AiClient {
   classify(input: { subject: string; bodyText: string }): Promise<MailCategory | null>;
   extractJson(input: { task: string; subject: string; bodyText: string }): Promise<Record<string, unknown> | null>;
   generateReply(input: { subject: string; bodyText: string; facts: string; constraints: string[] }): Promise<string | null>;
   extractAwardFromImage(input: { filePath: string; contentType: string }): Promise<AwardInfo | null>;
+  verifyScholarshipEvidence(input: ScholarshipEvidenceVerificationInput): Promise<ScholarshipEvidenceVerification | null>;
 }
 
 export class NoopAiClient implements AiClient {
@@ -33,15 +58,21 @@ export class NoopAiClient implements AiClient {
   async extractAwardFromImage(): Promise<AwardInfo | null> {
     return null;
   }
+
+  async verifyScholarshipEvidence(_input: ScholarshipEvidenceVerificationInput): Promise<ScholarshipEvidenceVerification | null> {
+    return null;
+  }
 }
 
 export class OpenAiCompatibleClient implements AiClient {
   private readonly textProvider: OpenAiProviderConfig;
   private readonly visionProvider: OpenAiProviderConfig;
+  private readonly scholarshipProvider: OpenAiProviderConfig;
 
-  constructor(config: { text: OpenAiProviderConfig; vision: OpenAiProviderConfig }) {
+  constructor(config: { text: OpenAiProviderConfig; vision: OpenAiProviderConfig; scholarship?: OpenAiProviderConfig }) {
     this.textProvider = normalizeProvider(config.text);
     this.visionProvider = normalizeProvider(config.vision);
+    this.scholarshipProvider = normalizeProvider(config.scholarship ?? config.vision);
   }
 
   private async chat(provider: OpenAiProviderConfig, messages: unknown[], json = false): Promise<string | null> {
@@ -156,6 +187,47 @@ export class OpenAiCompatibleClient implements AiClient {
       return null;
     }
   }
+
+  async verifyScholarshipEvidence(input: ScholarshipEvidenceVerificationInput): Promise<ScholarshipEvidenceVerification | null> {
+    if (input.images.length === 0) return null;
+    const imageParts = input.images.map((image) => ({
+      type: "image_url",
+      image_url: { url: image.dataUrl }
+    }));
+    const content = await this.chat(
+      this.scholarshipProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是高校奖学金/优秀毕业生证明材料核验员。你必须只基于用户提供的申报文本和证明材料图片判断，不得编造。只输出 JSON，字段为 supported, confidence, summary, issues, matchedItems, missingItems。confidence 为 0 到 1。issues、matchedItems、missingItems 必须是字符串数组。"
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                `申请人：${input.applicantName || "未知"}\n` +
+                `学号：${input.studentId || "未知"}\n` +
+                `核对类别：${input.categoryLabel}\n` +
+                `申报内容：\n${input.declaredText.slice(0, 4000)}\n\n` +
+                `本批证明页来自：${input.fileNames.join("；").slice(0, 1200)}\n\n` +
+                "请判断这些证明页是否支持申报内容。若发现姓名、日期、角色、组织、奖项、颁发单位不一致，请在 issues 中具体说明。若只能支持部分条目，请在 matchedItems 与 missingItems 中列出。"
+            },
+            ...imageParts
+          ]
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeScholarshipVerification(JSON.parse(content) as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
 }
 
 export type OpenAiProviderConfig = {
@@ -169,4 +241,26 @@ function normalizeProvider(provider: OpenAiProviderConfig): OpenAiProviderConfig
     ...provider,
     baseUrl: provider.baseUrl.replace(/\/$/, "")
   };
+}
+
+function normalizeScholarshipVerification(value: Record<string, unknown>): ScholarshipEvidenceVerification {
+  return {
+    supported: value.supported === true,
+    confidence: clampConfidence(value.confidence),
+    summary: typeof value.summary === "string" ? value.summary : "",
+    issues: stringArray(value.issues),
+    matchedItems: stringArray(value.matchedItems),
+    missingItems: stringArray(value.missingItems)
+  };
+}
+
+function clampConfidence(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
 }

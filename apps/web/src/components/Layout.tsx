@@ -1,13 +1,14 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import type { ReactNode } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Archive,
+  FileCheck2,
   Gauge,
   Inbox,
   KeyRound,
   LogOut,
   MailCheck,
   NotebookTabs,
-  Settings,
   SlidersHorizontal
 } from "lucide-react";
 import { api } from "../api/client.js";
@@ -17,10 +18,11 @@ const navItems = [
   { to: "/messages", label: "邮件列表", icon: Inbox },
   { to: "/drafts", label: "回复审核", icon: MailCheck },
   { to: "/forward-records", label: "转发记录", icon: Archive },
+  { to: "/scholarship-check", label: "优秀毕业生核对", icon: FileCheck2 },
   { to: "/settings", label: "配置", icon: SlidersHorizontal }
 ];
 
-export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function Layout({ children, onLoggedOut }: { children: ReactNode; onLoggedOut: () => void }) {
   const navigate = useNavigate();
   const logout = async () => {
     try {
@@ -66,7 +68,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
         </div>
       </aside>
       <main className="main">
-        <Outlet />
+        {children}
       </main>
     </div>
   );

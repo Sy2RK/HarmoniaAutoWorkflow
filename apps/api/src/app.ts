@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -21,11 +22,14 @@ import type { Env } from "./config/env.js";
 import type { GraphMailClient } from "./graph/client.js";
 import type { OutboundMailer } from "./mail/outbound.js";
 import { syncMailbox } from "./worker/sync.js";
+import { registerScholarshipCheckRoutes } from "./scholarship-check/routes.js";
 
 export type BuildAppOptions = {
   env: Env;
   repo: AppRepository;
   ai: AiClient;
+  scholarshipAi?: AiClient;
+  scholarshipCheckStorageRoot?: string;
   mailer: OutboundMailer;
   graph: GraphMailClient;
   attachmentRoot: string;
@@ -86,12 +90,32 @@ function sessionCookieSecure(env: Env): boolean {
   return env.SESSION_COOKIE_SECURE ?? env.NODE_ENV === "production";
 }
 
+function webOriginAliases(origin: string): string[] {
+  const origins = new Set([origin]);
+  try {
+    const url = new URL(origin);
+    const port = url.port ? `:${url.port}` : "";
+    if (url.hostname === "localhost") origins.add(`${url.protocol}//127.0.0.1${port}`);
+    if (url.hostname === "127.0.0.1") origins.add(`${url.protocol}//localhost${port}`);
+  } catch {
+    return [origin];
+  }
+  return Array.from(origins);
+}
+
 export async function buildApp(options: BuildAppOptions) {
   const app = Fastify({ logger: options.env.NODE_ENV !== "test" && process.env.NODE_ENV !== "test" });
   await app.register(cookie);
+  await app.register(multipart, {
+    limits: {
+      fileSize: 50 * 1024 * 1024,
+      files: 1000
+    }
+  });
   await app.register(cors, {
-    origin: options.env.WEB_ORIGIN,
-    credentials: true
+    origin: webOriginAliases(options.env.WEB_ORIGIN),
+    credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
   });
 
   const authGuard = requireAuth(options.repo, options.env.SESSION_SECRET);
@@ -350,6 +374,12 @@ export async function buildApp(options: BuildAppOptions) {
       attachmentRoot: options.attachmentRoot
     });
     return result;
+  });
+
+  await registerScholarshipCheckRoutes(app, {
+    ai: options.scholarshipAi ?? options.ai,
+    env: options.env,
+    ...(options.scholarshipCheckStorageRoot === undefined ? {} : { storageRoot: options.scholarshipCheckStorageRoot })
   });
 
   return app;

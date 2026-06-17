@@ -150,3 +150,32 @@ export type ApiListResponse<T> = {
   items: T[];
   total: number;
 };
+
+export const scholarshipCheckJobStatuses = ["queued", "processing", "paused", "completed", "failed", "cancelled"] as const;
+
+export type ScholarshipCheckJobStatus = (typeof scholarshipCheckJobStatuses)[number];
+
+export const scholarshipCheckRowStatuses = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+
+export type ScholarshipCheckRowStatus = (typeof scholarshipCheckRowStatuses)[number];
+
+export type ScholarshipCheckJob = {
+  id: string;
+  status: ScholarshipCheckJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  totalApplicants: number;
+  processedApplicants: number;
+  error: string | null;
+};
+
+export type ScholarshipCheckRow = {
+  rowNumber: number;
+  name: string;
+  studentId: string;
+  status: ScholarshipCheckRowStatus;
+  remark: string | null;
+  error: string | null;
+  editedAt?: string | null;
+  editedBy?: string | null;
+};

@@ -1,6 +1,6 @@
 # Backend Agent Handbook
 
-Last updated: 2026-06-04 11:54:34 CST
+Last updated: 2026-06-16 15:38:00 CST
 
 This document is the backend-only coordination record for Harmonia Auto Workflow. Backend agents should read this before changing `apps/api`, backend-facing `packages/shared` contracts, database schema, mail sync behavior, AI processing logic, or API behavior consumed by the frontend.
 
@@ -17,8 +17,11 @@ This document is the backend-only coordination record for Harmonia Auto Workflow
 - API service: `apps/api`
 - API entrypoint: `apps/api/src/index.ts`
 - Fastify app and route definitions: `apps/api/src/app.ts`
+- Scholarship check module: `apps/api/src/scholarship-check`
 - Repository port: `apps/api/src/db/repository.ts`
-- Postgres implementation and schema: `apps/api/src/db/postgres.ts`, `apps/api/src/db/schema.sql`
+- Repository factory: `apps/api/src/db/factory.ts`
+- SQLite implementation and schema: `apps/api/src/db/sqlite.ts`, `apps/api/src/db/schema.sqlite.sql`
+- Optional Postgres implementation and schema: `apps/api/src/db/postgres.ts`, `apps/api/src/db/schema.sql`
 - In-memory test repository: `apps/api/src/db/memory.ts`
 - Business workflow processor: `apps/api/src/business/processor.ts`
 - Mail sync worker: `apps/api/src/worker/sync.ts`
@@ -39,7 +42,8 @@ Avoid surprising automatic actions. Any path that sends mail, marks work complet
 - API framework: Fastify.
 - Validation: zod schemas inside `apps/api/src/app.ts`.
 - Auth model: local admin account with HMAC-signed HTTP-only cookie session.
-- Data model: Postgres tables created by `apps/api/src/db/schema.sql`.
+- Default local admins: `ADMIN_EMAIL`/`ADMIN_PASSWORD` plus optional JSON `ADMIN_USERS`.
+- Data model: SQLite file storage by default, with optional Postgres selected by `DB_DRIVER=postgres`.
 - Repository pattern: `AppRepository` is the backend data port; business logic should depend on this interface instead of SQL directly.
 - Testing: Vitest uses `InMemoryRepository` plus fake Graph, mailer, and AI clients.
 - External mail source: Microsoft Graph delta sync.
@@ -50,7 +54,7 @@ Avoid surprising automatic actions. Any path that sends mail, marks work complet
 
 Main startup flow:
 
-- `apps/api/src/index.ts` loads env, initializes `PostgresRepository`, runs migration, ensures admin user, builds Graph/mailer/AI clients, builds Fastify app, starts sync worker, then listens on `PORT`.
+- `apps/api/src/index.ts` loads env, initializes the selected repository through `createRepository`, runs migration, ensures admin user, builds Graph/mailer/AI clients, builds Fastify app, starts sync worker, then listens on `PORT`.
 
 Mail sync flow:
 
@@ -97,16 +101,17 @@ Backend agents must update `packages/shared/src/index.ts` and `apps/web/src/api/
 
 ## Current Progress
 
-- Completed initial backend/frontend orientation.
-- Confirmed backend API routes, repository interface, Postgres schema, business processor, Graph integration, mailer, AI adapter, and frontend API client alignment.
+- Completed SQLite local-deployment backend refactor.
+- Confirmed backend API routes, repository interface, SQLite/Postgres schemas, business processor, Graph integration, mailer, AI adapter, and frontend API client alignment.
 - Confirmed shared TypeScript contracts are the current source of truth for frontend/backend shape matching.
-- Confirmed current typecheck and API tests pass.
+- Confirmed full review gate passes after SQLite repository additions.
 - Created this backend agent handbook as the persistent progress sync surface.
 
 ## Known Backend Risks
 
 - `POST /messages/:id/process` can re-run workflow logic and may create repeated owner notifications or auto-send attempts depending on category and mailer state. Treat idempotency as a first-class concern.
-- Database migration is currently a single `schema.sql` with `create table if not exists`; field changes need a migration strategy before production evolution.
+- Database migrations are currently schema bootstrap files with `create table if not exists`; field changes need a migration strategy before production evolution.
+- SQLite is the default single-machine store. Use `DB_DRIVER=postgres` for multi-instance or higher-concurrency deployments.
 - Most settings email fields are plain strings. Invalid owner/default/manual mailbox values can cause downstream send failures.
 - `/drafts?status=` accepts any string cast to `DraftStatus`; invalid statuses should be validated if exposed more broadly.
 - Date filters compare raw `received_at >= from` and `received_at <= to`; frontend date-only `to` values may exclude messages later on the selected end date.
@@ -116,10 +121,12 @@ Backend agents must update `packages/shared/src/index.ts` and `apps/web/src/api/
 
 ## Validation Baseline
 
-Last verified on 2026-06-04:
+Last verified on 2026-06-16:
 
-- `pnpm typecheck`
 - `pnpm --filter @harmonia/api test`
+- `pnpm --filter @harmonia/api typecheck`
+- `pnpm --filter @harmonia/web typecheck`
+- `pnpm review`
 
 All passed.
 
@@ -130,3 +137,28 @@ All passed.
 - Read existing `docs/frontend-agent.md` to align agent coordination conventions.
 - Created this backend agent handbook for persistent backend progress synchronization.
 - Recorded the current backend architecture, frontend contract map, current progress, known backend risks, and validation baseline.
+
+### 2026-06-16 12:00:00 CST
+
+- Added `DB_DRIVER=sqlite|postgres` and `SQLITE_DB_PATH`, with SQLite as the default local backend.
+- Added `createRepository` and a SQLite-backed `AppRepository` implementation using `sql.js`, avoiding native Windows SQLite build requirements while persisting to `storage/harmonia.sqlite`.
+- Kept Postgres available through `DB_DRIVER=postgres`; Docker Compose now sets that explicitly.
+- Added SQLite schema, repository contract coverage, and SQLite-backed API persistence smoke coverage.
+- Updated README, `.env.example`, API Dockerfile schema copies, and backend coordination notes for no-Docker local deployment.
+- Verified local API and web dev servers start without Docker; `/health` returned ok, default login succeeded, and `storage/harmonia.sqlite` was created.
+- Ran validation: API tests, API typecheck, web typecheck, and full `pnpm review` all passed.
+
+### 2026-06-16 14:58:00 CST
+
+- Added `ADMIN_USERS` JSON config for extra local admin accounts while preserving `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+- Created local `.env` with two requested Outlook admin accounts; `.env` remains ignored by Git.
+- Restarted the local API server, confirmed both requested accounts were inserted into SQLite, and verified both logins return HTTP 200.
+- Ran validation: `pnpm --filter @harmonia/api typecheck` and `pnpm --filter @harmonia/api test` passed.
+
+### 2026-06-16 15:38:00 CST
+
+- Implemented the independent scholarship/outstanding graduate material check backend module.
+- Added authenticated multipart job creation, job polling, and result workbook download routes under `/scholarship-check`.
+- Added source workbook parsing, processed workbook generation, applicant evidence matching, category inference, and four-line remark output.
+- Added shared scholarship check API types and backend coverage for workbook mapping, remark formatting, folder matching, invalid uploads, unknown downloads, background processing, and result download.
+- Ran full validation: `pnpm review` passed.

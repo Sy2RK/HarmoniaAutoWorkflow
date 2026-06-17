@@ -79,6 +79,17 @@ Best UI rule: derive actions from `message.status`, `message.needsReview`, and w
 
 ## Current Progress
 
+- Completed the 2026-06-17 scholarship-check frontend follow-up: recent five records, backend-backed active job recovery, localStorage last-selection convenience, pause/resume/cancel controls, delete confirmation, manual row remark editing, manual refresh, and terminal-record download handling.
+- Added frontend API client methods for `GET /scholarship-check/jobs?limit=5`, row remark `PATCH`, job `DELETE`, and pause/resume/cancel lifecycle endpoints.
+- Current validation is limited by the local shell: `node`, `pnpm`, and `corepack` are not available on PATH, so direct frontend typecheck/build could not be run in this environment.
+- Implemented the scholarship material check frontend for `/scholarship-check`.
+- Added shared scholarship check job/row types and frontend API client methods for upload, polling, and result download.
+- Added sidebar navigation for `奖学金核对` and a compact operations-console page for workbook/folder selection, job progress, row preview, and Excel download.
+- Upgraded the scholarship check current-job progress display with a percentage progress bar and indeterminate queued/preparing state.
+- Added a muted current-operation line below the scholarship check progress bar, inferred from job status and the row currently being processed.
+- Changed protected left-nav pages to stay mounted after first visit, so switching sidebar sections no longer reinitializes page-local state.
+- Verified the frontend contract against the backend scholarship-check routes now present under `apps/api/src/scholarship-check`.
+- TypeScript API diagnostics for `apps/web` and `packages/shared` passed with 0 diagnostics; direct `pnpm` command validation is blocked because `node`, `pnpm`, and `corepack` are not available on PATH.
 - Completed initial frontend/backend orientation.
 - Confirmed frontend API client and backend Fastify routes are aligned at the TypeScript/type-contract level.
 - Confirmed current frontend build passes.
@@ -118,3 +129,27 @@ All passed.
 ### 2026-06-04 11:54:59 CST
 
 - Added the cross-agent coordination rule: frontend work should also consult other agent progress documents, such as backend notes, before changing shared contracts or dependent behavior.
+
+### 2026-06-16 CST
+
+- Read `docs/scholarship-check-frontend-agent.md` and `docs/scholarship-check-backend-agent.md`.
+- Implemented `/scholarship-check` in `apps/web/src/pages/ScholarshipCheckPage.tsx` with `.xlsx` workbook selection, browser folder upload, evidence file counts by applicant folder, explicit job creation, 3-second polling, progress display, row preview, preserved remark line breaks, and completed-job Excel download.
+- Added scholarship check shared types in `packages/shared/src/index.ts`.
+- Added frontend API client methods for `POST /scholarship-check/jobs`, `GET /scholarship-check/jobs/:id`, and `GET /scholarship-check/jobs/:id/result`, preserving `evidencePaths` order and avoiding a forced JSON content type for multipart upload.
+- Added the protected route and sidebar item for `奖学金核对`.
+- Added page-specific CSS while keeping the current compact operations-console visual style.
+- Added a clearer current-task progress bar for scholarship check jobs, including percentage text, accessible progressbar attributes, and an indeterminate visual state before applicant totals are known.
+- Added a gray helper line under the scholarship check progress bar to show the current operation, such as queued, reading materials, checking a specific applicant, generating the workbook, completed, or failed.
+- Refactored the protected route shell so top-level sidebar pages are keep-alive panels. Dashboard, messages, drafts, forward records, scholarship check, and settings remain mounted after first visit; message detail remains a normal route.
+- Confirmed by source inspection that frontend field names and response shapes match the backend route implementation under `apps/api/src/scholarship-check`.
+- Ran TypeScript compiler diagnostics through the available TypeScript API for `apps/web` and `packages/shared`; both returned 0 diagnostics.
+- Could not run the direct `pnpm --filter @harmonia/web typecheck` shell command because this workspace shell does not currently expose Node.js, Corepack, or pnpm.
+
+### 2026-06-17 CST
+
+- Re-read `docs/scholarship-check-frontend-agent.md` and followed its frontend ownership boundary: no backend scholarship-check files were modified for this frontend pass.
+- Extended `apps/web/src/api/client.ts` with recent-job listing, row remark update, delete, pause, resume, and cancel methods.
+- Reworked `apps/web/src/pages/ScholarshipCheckPage.tsx` so `/scholarship-check` loads the latest five records, auto-selects the newest active or paused job on return, stores the last selected job ID in `localStorage`, keeps polling only queued/processing jobs, and allows manual refresh.
+- Added lifecycle controls with explicit confirmation for cancellation, record deletion with confirmation, retained-record selection, terminal-record download attempts, and row-level remark editing that preserves the four-line structure before calling `PATCH`.
+- Added CSS for recent records, compact lifecycle controls, paused/cancelled status states, and in-table remark editing while keeping the operations-console visual language.
+- Attempted validation with `pnpm --filter @harmonia/web typecheck`, `node --version`, `corepack --version`, and `where.exe node/pnpm`; all failed because the commands are unavailable on PATH in this shell.

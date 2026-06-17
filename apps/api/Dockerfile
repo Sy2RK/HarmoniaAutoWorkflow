@@ -22,6 +22,7 @@ COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/src/db/schema.sql ./apps/api/dist/apps/api/src/db/schema.sql
+COPY --from=build /app/apps/api/src/db/schema.sqlite.sql ./apps/api/dist/apps/api/src/db/schema.sqlite.sql
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 EXPOSE 4000
 CMD ["node", "apps/api/dist/apps/api/src/index.js"]

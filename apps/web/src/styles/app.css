@@ -265,6 +265,15 @@ textarea {
   color: var(--red);
 }
 
+.icon-button.small {
+  width: 32px;
+  min-height: 32px;
+}
+
+.icon-button.danger {
+  color: var(--red);
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(150px, 1fr));
@@ -309,6 +318,18 @@ textarea {
   margin-bottom: 12px;
   font-size: 15px;
   font-weight: 900;
+}
+
+.panel-heading {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-heading .panel-title {
+  margin-bottom: 0;
 }
 
 .table-wrap {
@@ -544,6 +565,246 @@ td {
   white-space: pre-wrap;
 }
 
+.scholarship-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
+  gap: 16px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.file-field input {
+  min-height: 42px;
+  padding: 8px;
+}
+
+.selected-files {
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+
+.selected-files div,
+.job-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.selected-files svg {
+  color: var(--jade);
+}
+
+.muted-hint,
+.muted-row {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.folder-breakdown {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.folder-breakdown li {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.folder-breakdown span {
+  overflow-wrap: anywhere;
+}
+
+.folder-breakdown strong {
+  color: var(--jade-dark);
+}
+
+.recent-jobs {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-job {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.recent-job.active {
+  border-color: #8ccab9;
+  box-shadow: inset 3px 0 0 var(--jade);
+}
+
+.recent-job-main {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.recent-job-main strong {
+  font-size: 13px;
+}
+
+.recent-job-main span,
+.recent-job-main em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.job-progress {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  margin-top: 12px;
+  overflow: hidden;
+  background: #e5ece9;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.job-progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--jade);
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+
+.job-progress.indeterminate span {
+  width: 40%;
+  animation: progress-sweep 1.2s ease-in-out infinite;
+}
+
+.job-progress-detail {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scholarship-progress-completed span {
+  background: var(--jade);
+}
+
+.scholarship-progress-failed span {
+  background: var(--red);
+}
+
+.scholarship-progress-paused span,
+.scholarship-progress-cancelled span {
+  background: var(--amber);
+}
+
+.scholarship-progress-processing span,
+.scholarship-progress-queued span {
+  background: linear-gradient(90deg, var(--jade), var(--blue));
+}
+
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+.scholarship-table {
+  min-width: 960px;
+}
+
+.remark-cell {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.remark-display {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: start;
+}
+
+.remark-display pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.remark-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.remark-editor textarea {
+  min-height: 126px;
+  line-height: 1.55;
+}
+
+.scholarship-job-failed,
+.scholarship-row-failed {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #e8b4af;
+}
+
+.scholarship-job-completed,
+.scholarship-row-completed {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.scholarship-job-processing,
+.scholarship-row-processing {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.scholarship-job-queued,
+.scholarship-job-paused,
+.scholarship-job-cancelled,
+.scholarship-row-pending {
+  color: var(--blue);
+  background: #edf4ff;
+  border-color: #bad0ee;
+}
+
+.scholarship-row-cancelled {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
 @media (max-width: 1080px) {
   .shell {
     grid-template-columns: 1fr;
@@ -559,6 +820,8 @@ td {
   .detail-grid,
   .split-panels,
   .settings-grid,
+  .scholarship-grid,
+  .upload-grid,
   .filter-bar {
     grid-template-columns: 1fr;
   }

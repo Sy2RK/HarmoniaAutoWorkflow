@@ -15,6 +15,26 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const adminUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8)
+});
+
+const adminUsersJson = z.string().default("[]").transform((value, ctx) => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const result = z.array(adminUserSchema).safeParse(parsed);
+    if (result.success) return result.data;
+  } catch {
+    // Fall through to the shared validation issue below.
+  }
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "ADMIN_USERS must be a JSON array of { email, password } objects"
+  });
+  return z.NEVER;
+});
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -22,9 +42,12 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(24).default("dev-session-secret-change-before-production"),
   SESSION_COOKIE_SECURE: envBoolean.optional(),
   APP_TIMEZONE: z.string().default("Asia/Shanghai"),
+  DB_DRIVER: z.enum(["sqlite", "postgres"]).default("sqlite"),
+  SQLITE_DB_PATH: z.string().default("storage/harmonia.sqlite"),
   DATABASE_URL: z.string().default("postgres://harmonia:harmonia@localhost:5432/harmonia"),
   ADMIN_EMAIL: z.string().email().default("admin@example.edu.cn"),
   ADMIN_PASSWORD: z.string().min(8).default("ChangeMe123!"),
+  ADMIN_USERS: adminUsersJson,
   GRAPH_TENANT_ID: z.string().default("common"),
   GRAPH_CLIENT_ID: z.string().default(""),
   GRAPH_TOKEN_CACHE_PATH: z.string().default("storage/msal-cache.json"),
@@ -40,6 +63,11 @@ const envSchema = z.object({
   OPENAI_VISION_API_KEY: z.string().default(""),
   OPENAI_VISION_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   OPENAI_VISION_MODEL: z.string().default("gpt-4.1-mini"),
+  SCHOLARSHIP_CHECK_AI_API_KEY: z.string().default(""),
+  SCHOLARSHIP_CHECK_AI_BASE_URL: z.string().url().default("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+  SCHOLARSHIP_CHECK_AI_MODEL: z.string().default("qwen3.7-plus"),
+  SCHOLARSHIP_CHECK_AI_IMAGES_PER_REQUEST: z.coerce.number().int().positive().max(8).default(4),
+  SCHOLARSHIP_CHECK_AI_PDF_IMAGE_WIDTH: z.coerce.number().int().positive().max(2400).default(1600),
   AI_ENABLED: envBoolean.default(false),
   ATTACHMENT_STORAGE_DIR: z.string().default("storage/attachments")
 });

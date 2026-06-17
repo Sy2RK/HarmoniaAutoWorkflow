@@ -1,15 +1,15 @@
 import { env } from "./config/env.js";
-import { PostgresRepository } from "./db/postgres.js";
-import { hashPassword } from "./auth/session.js";
+import { createRepository } from "./db/factory.js";
+import { ensureConfiguredAdminUsers } from "./auth/admin.js";
 import { MicrosoftGraphMailClient } from "./graph/client.js";
 import { GraphOutboundMailer } from "./mail/outbound.js";
 import { NoopAiClient, OpenAiCompatibleClient } from "./ai/client.js";
 import { buildApp } from "./app.js";
 import { startSyncWorker } from "./worker/sync.js";
 
-const repo = new PostgresRepository(env.DATABASE_URL, env.GRAPH_MAILBOX_ADDRESS);
+const repo = await createRepository(env);
 await repo.migrate();
-await repo.ensureAdminUser(env.ADMIN_EMAIL, await hashPassword(env.ADMIN_PASSWORD));
+await ensureConfiguredAdminUsers(repo, env);
 
 const settings = await repo.getSettings();
 if ((env.GRAPH_MAILBOX_ADDRESS && settings.mailboxAddress !== env.GRAPH_MAILBOX_ADDRESS) || (env.GRAPH_SYNC_ENABLED && !settings.mailSyncEnabled)) {
@@ -45,8 +45,27 @@ const ai =
         }
       })
     : new NoopAiClient();
+const scholarshipAi = env.SCHOLARSHIP_CHECK_AI_API_KEY
+  ? new OpenAiCompatibleClient({
+      text: {
+        apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
+        baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+      },
+      vision: {
+        apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
+        baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+      },
+      scholarship: {
+        apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
+        baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+      }
+    })
+  : ai;
 
-const app = await buildApp({ env, repo, ai, mailer, graph, attachmentRoot: env.ATTACHMENT_STORAGE_DIR });
+const app = await buildApp({ env, repo, ai, scholarshipAi, mailer, graph, attachmentRoot: env.ATTACHMENT_STORAGE_DIR });
 
 startSyncWorker({ repo, graph, ai, mailer, attachmentRoot: env.ATTACHMENT_STORAGE_DIR }, env.GRAPH_SYNC_INTERVAL_SECONDS);
 

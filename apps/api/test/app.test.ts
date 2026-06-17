@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { ensureConfiguredAdminUsers } from "../src/auth/admin.js";
 import { hashPassword } from "../src/auth/session.js";
 import { NoopAiClient } from "../src/ai/client.js";
 import { InMemoryRepository } from "../src/db/memory.js";
@@ -12,9 +13,12 @@ const env = {
   WEB_ORIGIN: "http://localhost:5173",
   SESSION_SECRET: "test-session-secret-with-enough-length",
   APP_TIMEZONE: "Asia/Shanghai",
+  DB_DRIVER: "sqlite",
+  SQLITE_DB_PATH: ":memory:",
   DATABASE_URL: "postgres://test",
   ADMIN_EMAIL: "admin@example.edu.cn",
   ADMIN_PASSWORD: "ChangeMe123!",
+  ADMIN_USERS: [] as { email: string; password: string }[],
   GRAPH_TENANT_ID: "common",
   GRAPH_CLIENT_ID: "",
   GRAPH_TOKEN_CACHE_PATH: "storage/msal-cache.json",
@@ -30,6 +34,11 @@ const env = {
   OPENAI_VISION_API_KEY: "",
   OPENAI_VISION_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   OPENAI_VISION_MODEL: "gpt-4.1-mini",
+  SCHOLARSHIP_CHECK_AI_API_KEY: "",
+  SCHOLARSHIP_CHECK_AI_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  SCHOLARSHIP_CHECK_AI_MODEL: "qwen3.7-plus",
+  SCHOLARSHIP_CHECK_AI_IMAGES_PER_REQUEST: 4,
+  SCHOLARSHIP_CHECK_AI_PDF_IMAGE_WIDTH: 1600,
   AI_ENABLED: false,
   ATTACHMENT_STORAGE_DIR: "storage/attachments"
 } as const;
@@ -103,6 +112,32 @@ describe("app auth", () => {
     const cookie = await loginCookie(app);
 
     expect(cookie).toContain("Secure");
+    await app.close();
+  });
+
+  it("accepts multiple configured local admins", async () => {
+    const repo = new InMemoryRepository("public@example.edu.cn");
+    await ensureConfiguredAdminUsers(repo, {
+      ...env,
+      ADMIN_EMAIL: "first@example.edu.cn",
+      ADMIN_PASSWORD: "FirstPass2026",
+      ADMIN_USERS: [{ email: "second@example.edu.cn", password: "SecondPass2026*" }]
+    });
+    const app = await buildApp({ env, repo, ai: new NoopAiClient(), mailer, graph, attachmentRoot: "storage/attachments" });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "first@example.edu.cn", password: "FirstPass2026" }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "second@example.edu.cn", password: "SecondPass2026*" }
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
     await app.close();
   });
 

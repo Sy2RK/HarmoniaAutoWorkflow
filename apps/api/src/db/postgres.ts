@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type QueryResultRow } from "pg";
 import type {
@@ -27,7 +28,10 @@ import type {
   UserRecord
 } from "./repository.js";
 
-const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "schema.sql");
+function resolveSchemaPath(): string {
+  const candidates = [join(dirname(fileURLToPath(import.meta.url)), "schema.sql"), resolve(process.cwd(), "apps/api/src/db/schema.sql")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
 
 function iso(value: Date | string | null): string | null {
   if (value === null) return null;
@@ -166,7 +170,7 @@ export class PostgresRepository implements AppRepository {
   }
 
   async migrate(): Promise<void> {
-    const sql = await readFile(schemaPath, "utf8");
+    const sql = await readFile(resolveSchemaPath(), "utf8");
     await this.pool.query(sql);
     const settings = defaultSettings(this.initialMailbox);
     await this.pool.query(

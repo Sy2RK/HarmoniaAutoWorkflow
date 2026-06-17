@@ -23,6 +23,7 @@ services:
     env_file:
       - .env
     environment:
+      DB_DRIVER: postgres
       DATABASE_URL: postgres://harmonia:harmonia@postgres:5432/harmonia
       PORT: 4000
       WEB_ORIGIN: http://localhost:5173

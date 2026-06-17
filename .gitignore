@@ -26,6 +26,12 @@ coverage/
 storage/*
 !storage/.gitkeep
 
+# Local private applicant sample materials
+ScholarshipCheck/
+Scholarshipcheck/
+OutstandingGraduateCheck/
+OutstandingGraduatecheck/
+
 # Logs and OS files
 *.log
 npm-debug.log*
