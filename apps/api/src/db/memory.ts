@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AppSettings,
   AttachmentRecord,
+  CollegeKnowledgeDocument,
   DraftStatus,
   ForwardRecord,
   KnowledgeEntry,
@@ -12,6 +13,10 @@ import { defaultSettings } from "../config/defaults.js";
 import type {
   AppRepository,
   AuditInput,
+  CollegeKnowledgeChunkInput,
+  CollegeKnowledgeChunkRecord,
+  CollegeKnowledgeDocumentInput,
+  CollegeKnowledgeDocumentPatch,
   DraftInput,
   ForwardInput,
   MessageFilters,
@@ -34,6 +39,8 @@ export class InMemoryRepository implements AppRepository {
   private drafts = new Map<string, ReplyDraft>();
   private forwards = new Map<string, ForwardRecord>();
   private knowledge = new Map<string, KnowledgeEntry>();
+  private collegeKnowledgeDocuments = new Map<string, CollegeKnowledgeDocument>();
+  private collegeKnowledgeChunks = new Map<string, CollegeKnowledgeChunkRecord>();
   private audits: import("./repository.js").AuditRecord[] = [];
 
   constructor(mailboxAddress = "public@example.edu.cn") {
@@ -238,6 +245,69 @@ export class InMemoryRepository implements AppRepository {
     };
     this.knowledge.set(record.id, record);
     return structuredClone(record);
+  }
+
+  async upsertCollegeKnowledgeDocument(input: CollegeKnowledgeDocumentInput): Promise<CollegeKnowledgeDocument> {
+    const existing = this.collegeKnowledgeDocuments.get(input.id);
+    const stamp = now();
+    const record: CollegeKnowledgeDocument = {
+      ...input,
+      createdAt: existing?.createdAt ?? stamp,
+      updatedAt: stamp
+    };
+    this.collegeKnowledgeDocuments.set(record.id, record);
+    return structuredClone(record);
+  }
+
+  async updateCollegeKnowledgeDocument(id: string, patch: CollegeKnowledgeDocumentPatch): Promise<CollegeKnowledgeDocument> {
+    const document = this.collegeKnowledgeDocuments.get(id);
+    if (!document) throw new Error(`College knowledge document ${id} not found`);
+    const updated: CollegeKnowledgeDocument = { ...document, ...patch, updatedAt: now() };
+    this.collegeKnowledgeDocuments.set(id, updated);
+    return structuredClone(updated);
+  }
+
+  async getCollegeKnowledgeDocument(id: string): Promise<CollegeKnowledgeDocument | null> {
+    const document = this.collegeKnowledgeDocuments.get(id);
+    return document ? structuredClone(document) : null;
+  }
+
+  async getCollegeKnowledgeDocumentBySha256(sha256: string): Promise<CollegeKnowledgeDocument | null> {
+    const document = [...this.collegeKnowledgeDocuments.values()].find((item) => item.sha256 === sha256);
+    return document ? structuredClone(document) : null;
+  }
+
+  async listCollegeKnowledgeDocuments(): Promise<CollegeKnowledgeDocument[]> {
+    return structuredClone([...this.collegeKnowledgeDocuments.values()].toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }
+
+  async replaceCollegeKnowledgeChunks(documentId: string, chunks: CollegeKnowledgeChunkInput[]): Promise<void> {
+    for (const [id, chunk] of this.collegeKnowledgeChunks.entries()) {
+      if (chunk.documentId === documentId) this.collegeKnowledgeChunks.delete(id);
+    }
+    const stamp = now();
+    for (const chunk of chunks) {
+      this.collegeKnowledgeChunks.set(chunk.id, {
+        ...chunk,
+        createdAt: stamp,
+        updatedAt: stamp
+      });
+    }
+  }
+
+  async listCollegeKnowledgeChunks(documentId?: string): Promise<CollegeKnowledgeChunkRecord[]> {
+    const chunks = [...this.collegeKnowledgeChunks.values()]
+      .filter((chunk) => (documentId ? chunk.documentId === documentId : true))
+      .toSorted((a, b) => a.documentId.localeCompare(b.documentId) || a.chunkIndex - b.chunkIndex);
+    return structuredClone(chunks);
+  }
+
+  async deleteCollegeKnowledgeDocument(id: string): Promise<boolean> {
+    const deleted = this.collegeKnowledgeDocuments.delete(id);
+    for (const [chunkId, chunk] of this.collegeKnowledgeChunks.entries()) {
+      if (chunk.documentId === id) this.collegeKnowledgeChunks.delete(chunkId);
+    }
+    return deleted;
   }
 
   async dashboard(nowIso: string): Promise<{

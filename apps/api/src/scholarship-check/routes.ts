@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
@@ -12,7 +13,7 @@ import { ScholarshipCheckService, scholarshipCheckStorageRoot } from "./service.
 const paramsSchema = z.object({ id: z.string().uuid() });
 const rowParamsSchema = paramsSchema.extend({ rowNumber: z.coerce.number().int().positive() });
 const listQuerySchema = z.object({ limit: z.coerce.number().int().positive().max(50).default(5) });
-const updateRemarkSchema = z.object({ remark: z.string().min(1) });
+const updateRemarkSchema = z.object({ remark: z.string().min(1), detail: z.string().min(1) });
 const modeSchema = z.enum(["ai", "dry_run"]).default("ai");
 
 type MultipartPart =
@@ -38,7 +39,7 @@ export async function registerScholarshipCheckRoutes(
   }
 ) {
   const serviceStorageRoot =
-    options.storageRoot ?? (options.env.NODE_ENV === "test" ? join("storage", "scholarship-check-test", randomUUID()) : undefined);
+    options.storageRoot ?? (options.env.NODE_ENV === "test" ? join(tmpdir(), "harmonia-scholarship-check", randomUUID()) : undefined);
   const resolvedStorageRoot = scholarshipCheckStorageRoot(serviceStorageRoot);
   const service = new ScholarshipCheckService(resolvedStorageRoot, options.ai, {
     imagesPerRequest: options.env.SCHOLARSHIP_CHECK_AI_IMAGES_PER_REQUEST,
@@ -109,7 +110,7 @@ export async function registerScholarshipCheckRoutes(
     const params = rowParamsSchema.parse(request.params);
     const body = updateRemarkSchema.parse(request.body);
     try {
-      const result = await service.updateRow(params.id, params.rowNumber, body.remark, request.user?.email ?? null);
+      const result = await service.updateRow(params.id, params.rowNumber, body.remark, body.detail, request.user?.email ?? null);
       if (!result) return reply.code(404).send({ error: "SCHOLARSHIP_CHECK_ROW_NOT_FOUND" });
       return result;
     } catch (error) {

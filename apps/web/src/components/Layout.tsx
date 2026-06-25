@@ -1,16 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import {
-  Archive,
-  FileCheck2,
-  Gauge,
-  Inbox,
-  KeyRound,
-  LogOut,
-  MailCheck,
-  NotebookTabs,
-  SlidersHorizontal
-} from "lucide-react";
+import { Archive, BookOpenText, FileCheck2, Gauge, Inbox, KeyRound, LogOut, MailCheck, NotebookTabs, SlidersHorizontal } from "lucide-react";
 import { api } from "../api/client.js";
 
 const navItems = [
@@ -19,6 +9,7 @@ const navItems = [
   { to: "/drafts", label: "回复审核", icon: MailCheck },
   { to: "/forward-records", label: "转发记录", icon: Archive },
   { to: "/scholarship-check", label: "优秀毕业生核对", icon: FileCheck2 },
+  { to: "/college-knowledge", label: "书院知识问答", icon: BookOpenText },
   { to: "/settings", label: "配置", icon: SlidersHorizontal }
 ];
 
@@ -42,7 +33,7 @@ export function Layout({ children, onLoggedOut }: { children: ReactNode; onLogge
           </div>
           <div>
             <strong>Harmonia</strong>
-            <span>学院邮箱工作流</span>
+            <span>祥波书院自动工作流</span>
           </div>
         </div>
         <nav className="nav">
@@ -67,9 +58,7 @@ export function Layout({ children, onLoggedOut }: { children: ReactNode; onLogge
           </button>
         </div>
       </aside>
-      <main className="main">
-        {children}
-      </main>
+      <main className="main">{children}</main>
     </div>
   );
 }

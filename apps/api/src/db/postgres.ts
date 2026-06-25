@@ -4,9 +4,11 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type QueryResultRow } from "pg";
+import { scholarshipAiModels } from "@harmonia/shared";
 import type {
   AppSettings,
   AttachmentRecord,
+  CollegeKnowledgeDocument,
   DraftStatus,
   ForwardRecord,
   KnowledgeEntry,
@@ -19,6 +21,10 @@ import { defaultSettings } from "../config/defaults.js";
 import type {
   AppRepository,
   AuditInput,
+  CollegeKnowledgeChunkInput,
+  CollegeKnowledgeChunkRecord,
+  CollegeKnowledgeDocumentInput,
+  CollegeKnowledgeDocumentPatch,
   DraftInput,
   ForwardInput,
   MessageFilters,
@@ -50,6 +56,12 @@ function jsonValue<T>(value: unknown, fallback: T): T {
   return value as T;
 }
 
+function scholarshipAiModel(value: string): AppSettings["scholarshipCheckAiModel"] {
+  return scholarshipAiModels.includes(value as AppSettings["scholarshipCheckAiModel"])
+    ? (value as AppSettings["scholarshipCheckAiModel"])
+    : scholarshipAiModels[0];
+}
+
 function rowToUser(row: QueryResultRow): UserRecord {
   return {
     id: String(row.id),
@@ -66,6 +78,7 @@ function rowToSettings(row: QueryResultRow | null, mailboxAddress: string): AppS
     mailboxAddress: String(row.mailbox_address),
     ownerEmails: jsonValue(row.owner_emails, {}),
     defaultManualEmail: String(row.default_manual_email),
+    scholarshipCheckAiModel: scholarshipAiModel(String(row.scholarship_check_ai_model ?? scholarshipAiModels[0])),
     roomAutoApproveEnabled: Boolean(row.room_auto_approve_enabled),
     knowledgeBaseEnabled: Boolean(row.knowledge_base_enabled),
     mailSyncEnabled: Boolean(row.mail_sync_enabled),
@@ -160,6 +173,44 @@ function rowToKnowledge(row: QueryResultRow): KnowledgeEntry {
   };
 }
 
+function rowToCollegeKnowledgeDocument(row: QueryResultRow): CollegeKnowledgeDocument {
+  return {
+    id: String(row.id),
+    fileName: String(row.file_name),
+    originalName: String(row.original_name),
+    relativePath: row.relative_path ? String(row.relative_path) : null,
+    contentType: row.content_type ? String(row.content_type) : null,
+    size: Number(row.size ?? 0),
+    sha256: String(row.sha256),
+    status: String(row.status) as CollegeKnowledgeDocument["status"],
+    error: row.error ? String(row.error) : null,
+    warnings: jsonValue(row.warnings, []),
+    storagePath: String(row.storage_path),
+    extractedMarkdownPath: String(row.extracted_markdown_path),
+    metadataPath: String(row.metadata_path),
+    chunkCount: Number(row.chunk_count ?? 0),
+    createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    updatedAt: iso(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
+function rowToCollegeKnowledgeChunk(row: QueryResultRow): CollegeKnowledgeChunkRecord {
+  return {
+    id: String(row.id),
+    documentId: String(row.document_id),
+    chunkIndex: Number(row.chunk_index ?? 0),
+    title: row.title ? String(row.title) : null,
+    locator: String(row.locator),
+    sourcePath: row.source_path ? String(row.source_path) : null,
+    text: String(row.text ?? ""),
+    markdown: String(row.markdown ?? ""),
+    metadata: jsonValue(row.metadata, {}),
+    tokenCount: Number(row.token_count ?? 0),
+    createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    updatedAt: iso(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
 export class PostgresRepository implements AppRepository {
   private readonly pool: Pool;
   private readonly initialMailbox: string;
@@ -172,17 +223,19 @@ export class PostgresRepository implements AppRepository {
   async migrate(): Promise<void> {
     const sql = await readFile(resolveSchemaPath(), "utf8");
     await this.pool.query(sql);
+    await this.pool.query(`alter table app_settings add column if not exists scholarship_check_ai_model text not null default '${scholarshipAiModels[0]}'`);
     const settings = defaultSettings(this.initialMailbox);
     await this.pool.query(
       `insert into app_settings (
         id, mailbox_address, owner_emails, default_manual_email,
-        room_auto_approve_enabled, knowledge_base_enabled, mail_sync_enabled, room_rules
-      ) values (1, $1, $2, $3, $4, $5, $6, $7)
+        scholarship_check_ai_model, room_auto_approve_enabled, knowledge_base_enabled, mail_sync_enabled, room_rules
+      ) values (1, $1, $2, $3, $4, $5, $6, $7, $8)
       on conflict (id) do nothing`,
       [
         settings.mailboxAddress,
         JSON.stringify(settings.ownerEmails),
         settings.defaultManualEmail,
+        settings.scholarshipCheckAiModel,
         settings.roomAutoApproveEnabled,
         settings.knowledgeBaseEnabled,
         settings.mailSyncEnabled,
@@ -219,12 +272,13 @@ export class PostgresRepository implements AppRepository {
     const result = await this.pool.query(
       `insert into app_settings (
         id, mailbox_address, owner_emails, default_manual_email,
-        room_auto_approve_enabled, knowledge_base_enabled, mail_sync_enabled, room_rules, updated_at
-      ) values (1, $1, $2, $3, $4, $5, $6, $7, now())
+        scholarship_check_ai_model, room_auto_approve_enabled, knowledge_base_enabled, mail_sync_enabled, room_rules, updated_at
+      ) values (1, $1, $2, $3, $4, $5, $6, $7, $8, now())
       on conflict (id) do update set
         mailbox_address = excluded.mailbox_address,
         owner_emails = excluded.owner_emails,
         default_manual_email = excluded.default_manual_email,
+        scholarship_check_ai_model = excluded.scholarship_check_ai_model,
         room_auto_approve_enabled = excluded.room_auto_approve_enabled,
         knowledge_base_enabled = excluded.knowledge_base_enabled,
         mail_sync_enabled = excluded.mail_sync_enabled,
@@ -235,6 +289,7 @@ export class PostgresRepository implements AppRepository {
         settings.mailboxAddress,
         JSON.stringify(settings.ownerEmails),
         settings.defaultManualEmail,
+        settings.scholarshipCheckAiModel,
         settings.roomAutoApproveEnabled,
         settings.knowledgeBaseEnabled,
         settings.mailSyncEnabled,
@@ -479,6 +534,123 @@ export class PostgresRepository implements AppRepository {
       [input.id, input.category, input.question, input.answer, input.enabled]
     );
     return rowToKnowledge(result.rows[0]);
+  }
+
+  async upsertCollegeKnowledgeDocument(input: CollegeKnowledgeDocumentInput): Promise<CollegeKnowledgeDocument> {
+    const result = await this.pool.query(
+      `insert into college_knowledge_documents (
+        id, file_name, original_name, relative_path, content_type, size, sha256, status, error,
+        warnings, storage_path, extracted_markdown_path, metadata_path, chunk_count, updated_at
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+      on conflict (id) do update set
+        file_name = excluded.file_name,
+        original_name = excluded.original_name,
+        relative_path = excluded.relative_path,
+        content_type = excluded.content_type,
+        size = excluded.size,
+        sha256 = excluded.sha256,
+        status = excluded.status,
+        error = excluded.error,
+        warnings = excluded.warnings,
+        storage_path = excluded.storage_path,
+        extracted_markdown_path = excluded.extracted_markdown_path,
+        metadata_path = excluded.metadata_path,
+        chunk_count = excluded.chunk_count,
+        updated_at = now()
+      returning *`,
+      [
+        input.id,
+        input.fileName,
+        input.originalName,
+        input.relativePath,
+        input.contentType,
+        input.size,
+        input.sha256,
+        input.status,
+        input.error,
+        JSON.stringify(input.warnings),
+        input.storagePath,
+        input.extractedMarkdownPath,
+        input.metadataPath,
+        input.chunkCount
+      ]
+    );
+    return rowToCollegeKnowledgeDocument(result.rows[0]);
+  }
+
+  async updateCollegeKnowledgeDocument(id: string, patch: CollegeKnowledgeDocumentPatch): Promise<CollegeKnowledgeDocument> {
+    const assignments: string[] = ["updated_at = now()"];
+    const values: unknown[] = [];
+    const push = (column: string, value: unknown) => {
+      values.push(value);
+      assignments.push(`${column} = $${values.length}`);
+    };
+    if ("fileName" in patch) push("file_name", patch.fileName);
+    if ("originalName" in patch) push("original_name", patch.originalName);
+    if ("relativePath" in patch) push("relative_path", patch.relativePath);
+    if ("contentType" in patch) push("content_type", patch.contentType);
+    if ("size" in patch) push("size", patch.size);
+    if ("sha256" in patch) push("sha256", patch.sha256);
+    if ("status" in patch) push("status", patch.status);
+    if ("error" in patch) push("error", patch.error);
+    if ("warnings" in patch) push("warnings", JSON.stringify(patch.warnings ?? []));
+    if ("storagePath" in patch) push("storage_path", patch.storagePath);
+    if ("extractedMarkdownPath" in patch) push("extracted_markdown_path", patch.extractedMarkdownPath);
+    if ("metadataPath" in patch) push("metadata_path", patch.metadataPath);
+    if ("chunkCount" in patch) push("chunk_count", patch.chunkCount);
+    values.push(id);
+    const result = await this.pool.query(`update college_knowledge_documents set ${assignments.join(", ")} where id = $${values.length} returning *`, values);
+    return rowToCollegeKnowledgeDocument(result.rows[0]);
+  }
+
+  async getCollegeKnowledgeDocument(id: string): Promise<CollegeKnowledgeDocument | null> {
+    const result = await this.pool.query(`select * from college_knowledge_documents where id = $1`, [id]);
+    return result.rowCount ? rowToCollegeKnowledgeDocument(result.rows[0]) : null;
+  }
+
+  async getCollegeKnowledgeDocumentBySha256(sha256: string): Promise<CollegeKnowledgeDocument | null> {
+    const result = await this.pool.query(`select * from college_knowledge_documents where sha256 = $1`, [sha256]);
+    return result.rowCount ? rowToCollegeKnowledgeDocument(result.rows[0]) : null;
+  }
+
+  async listCollegeKnowledgeDocuments(): Promise<CollegeKnowledgeDocument[]> {
+    const result = await this.pool.query(`select * from college_knowledge_documents order by updated_at desc`);
+    return result.rows.map(rowToCollegeKnowledgeDocument);
+  }
+
+  async replaceCollegeKnowledgeChunks(documentId: string, chunks: CollegeKnowledgeChunkInput[]): Promise<void> {
+    await this.pool.query(`delete from college_knowledge_chunks where document_id = $1`, [documentId]);
+    for (const chunk of chunks) {
+      await this.pool.query(
+        `insert into college_knowledge_chunks (
+          id, document_id, chunk_index, title, locator, source_path, text, markdown, metadata, token_count, updated_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())`,
+        [
+          chunk.id,
+          chunk.documentId,
+          chunk.chunkIndex,
+          chunk.title,
+          chunk.locator,
+          chunk.sourcePath,
+          chunk.text,
+          chunk.markdown,
+          JSON.stringify(chunk.metadata),
+          chunk.tokenCount
+        ]
+      );
+    }
+  }
+
+  async listCollegeKnowledgeChunks(documentId?: string): Promise<CollegeKnowledgeChunkRecord[]> {
+    const result = documentId
+      ? await this.pool.query(`select * from college_knowledge_chunks where document_id = $1 order by chunk_index asc`, [documentId])
+      : await this.pool.query(`select * from college_knowledge_chunks order by document_id asc, chunk_index asc`);
+    return result.rows.map(rowToCollegeKnowledgeChunk);
+  }
+
+  async deleteCollegeKnowledgeDocument(id: string): Promise<boolean> {
+    const result = await this.pool.query(`delete from college_knowledge_documents where id = $1`, [id]);
+    return Boolean(result.rowCount);
   }
 
   async dashboard(nowIso: string): Promise<{

@@ -12,6 +12,7 @@ export function defaultSettings(mailboxAddress: string): AppSettings {
       other: ""
     },
     defaultManualEmail: "",
+    scholarshipCheckAiModel: "qwen3-5-397b-a17b",
     roomAutoApproveEnabled: true,
     knowledgeBaseEnabled: true,
     mailSyncEnabled: false,

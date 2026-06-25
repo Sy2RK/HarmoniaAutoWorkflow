@@ -16,7 +16,8 @@ export const outputColumns = [
   "奖项",
   "学院违纪情况",
   "书院违纪情况",
-  "核对情况备注"
+  "核对情况备注",
+  "详细情况"
 ] as const;
 
 const sourceColumns = [
@@ -55,14 +56,16 @@ export function parseApplicants(workbookPath: string): ApplicantRecord[] {
     .filter((row) => row.name || row.studentId);
 }
 
-export function writeProcessedWorkbook(applicants: ApplicantRecord[], remarks: Map<number, string>, outputPath: string): void {
+export function writeProcessedWorkbook(applicants: ApplicantRecord[], results: Map<number, { remark: string; detail: string }>, outputPath: string): void {
   const rows = applicants.map((applicant) => {
     const record: Record<string, string | number> = {};
     for (const column of outputColumns) {
       if (column === "学院违纪情况" || column === "书院违纪情况") {
         record[column] = defaultDiscipline;
       } else if (column === "核对情况备注") {
-        record[column] = remarks.get(applicant.rowNumber) ?? "";
+        record[column] = results.get(applicant.rowNumber)?.remark ?? "";
+      } else if (column === "详细情况") {
+        record[column] = results.get(applicant.rowNumber)?.detail ?? "";
       } else {
         record[column] = applicant.values[column] ?? "";
       }

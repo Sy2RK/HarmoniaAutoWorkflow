@@ -18,6 +18,7 @@ This document is the backend-only coordination record for Harmonia Auto Workflow
 - API entrypoint: `apps/api/src/index.ts`
 - Fastify app and route definitions: `apps/api/src/app.ts`
 - Scholarship check module: `apps/api/src/scholarship-check`
+- Award confidence module: `apps/api/src/award-confidence`
 - Repository port: `apps/api/src/db/repository.ts`
 - Repository factory: `apps/api/src/db/factory.ts`
 - SQLite implementation and schema: `apps/api/src/db/sqlite.ts`, `apps/api/src/db/schema.sqlite.sql`
@@ -162,3 +163,55 @@ All passed.
 - Added source workbook parsing, processed workbook generation, applicant evidence matching, category inference, and four-line remark output.
 - Added shared scholarship check API types and backend coverage for workbook mapping, remark formatting, folder matching, invalid uploads, unknown downloads, background processing, and result download.
 - Ran full validation: `pnpm review` passed.
+
+### 2026-06-17 15:54:00 CST
+
+- Implemented the independent award-confidence workbook backend module under `apps/api/src/award-confidence/`.
+- Added authenticated multipart job creation, job polling, and result workbook download routes under `/award-confidence`.
+- Added AI-backed workbook-only confidence scoring for first/second award applications: the AI judges each material subitem, then the backend applies the documented weighted formula.
+- Added shared award-confidence API types and backend coverage for wrapped headers, output workbook columns, blank second awards, AI subitem scoring, risk penalties, award profile weights, and invalid uploads.
+- Moved automatic test storage roots for background-job modules to OS temp directories unless a test explicitly injects a storage root, preventing parallel tests from deleting another app instance's runtime files.
+- Fixed a scholarship-check pause/resume race where a resume request arriving before the old worker exited could be swallowed by the active-process guard.
+- Validation passed: `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/api test`, and `pnpm review`.
+
+### 2026-06-17 Award Confidence History
+
+- Added persistent recent-record indexing for award-confidence jobs under `storage/award-confidence/index.json`.
+- Added `GET /award-confidence/jobs?limit=5` and wired delete to remove jobs from both storage and the recent-record index.
+- Award-confidence history now matches the material-check retention rule: retain the latest five records and keep active records discoverable until completion or explicit deletion.
+- Added backend coverage for award-confidence recent-list retention and deletion from the list.
+- Validation passed: `pnpm --filter @harmonia/api test -- apps/api/test/awardConfidence.test.ts` and `pnpm --filter @harmonia/api typecheck`.
+
+### 2026-06-25 Material Check Structured Output
+
+- Split material-check row output into fixed-status `remark` and business-reason `detail`, while keeping `error` for technical failures.
+- Updated the processed workbook to output both `核对情况备注` and `详细情况`.
+- Updated manual row edits to save both fields and regenerate terminal result workbooks.
+- Added backend tests for fixed statuses, AI mismatch/missing mapping, workbook columns, and edited-download persistence.
+
+### 2026-06-25 CUHK Local Model Configuration
+
+- Switched default OpenAI-compatible AI configuration to the CUHK local endpoint `https://ai-api.cuhk.edu.cn/v1` and default model `qwen3-5-397b-a17b`.
+- Added persisted `scholarshipCheckAiModel` settings so admins can manually choose between `qwen3-5-397b-a17b` and `gemma-4-31B` for subsequent material-check and award-confidence jobs.
+
+### 2026-06-25 College Knowledge Q&A Planning
+
+- Added `docs/college-knowledge-backend-agent.md` as the backend-only requirements document for the new `书院知识问答` RAG-style module.
+- Backend scope: authenticated `/college-knowledge` routes, document upload, parser/converter pipeline, canonical Markdown extraction, source-aware chunks, lexical retrieval without embeddings, LLM reranking, source-grounded answer generation, database/storage changes, shared types, and tests.
+- Boundary: backend agents must not implement React pages, sidebar navigation, settings-page UI cleanup, or CSS; frontend work is specified in `docs/college-knowledge-frontend-agent.md`.
+
+### 2026-06-25 Lenient Material Evidence Review
+
+- Relaxed material-check evidence review so core applicant, award/project name, and year/academic-year matching is enough for `无问题`.
+- Minor model-reported issues such as exact date absence, one-character typos, translation/abbreviation differences, near-synonym roles, same-entity name variants, screenshots, and informal proof format are retained in `详细情况` but no longer force `部分材料不匹配`.
+- Hard conflicts still map to `部分材料不匹配`, including different applicant, completely different award/project, clear year/academic-year conflict, and award level/ranking conflict.
+
+### 2026-06-25 College Knowledge Q&A Backend
+
+- Implemented the backend-only college knowledge module under `apps/api/src/college-knowledge/`.
+- Added authenticated `/college-knowledge` APIs for document listing, multipart upload, reindex, delete, JSON/multipart chat, image-question extraction, lexical retrieval, model rerank, and source-grounded answers.
+- Added Markdown-normalizing parsers for `md`, `txt`, `csv`, `xlsx/xls`, `pdf`, `docx`, `pptx`, and zip archives; old `.doc`/`.ppt` files are recorded as unsupported documents.
+- Added SQLite/Postgres/InMemory repository support for `college_knowledge_documents` and `college_knowledge_chunks`, including SHA-256 dedupe and full chunk replacement on reindex.
+- Added shared college knowledge document/source/chat response types and OpenAI-compatible AI methods for image extraction, rerank, and answer generation.
+- Added backend tests for upload, temp-file ignore, xlsx FAQ chunks, PDF page locators, docx/pptx locators, unsupported legacy Office files, reindex, delete, no-answer behavior, source citations, and multipart image chat.
+- Validation passed: `pnpm --filter @harmonia/api test`, `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/web typecheck`, and `pnpm review`.

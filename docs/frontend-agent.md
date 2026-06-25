@@ -79,9 +79,16 @@ Best UI rule: derive actions from `message.status`, `message.needsReview`, and w
 
 ## Current Progress
 
+- Implemented the `书院知识问答` frontend route at `/college-knowledge` with sidebar navigation and keep-alive page state.
+- Added a two-tab college knowledge page: `知识问答` chat with optional image upload and source display, plus `知识文档录入` for file/folder upload, relative-path preservation, document status, reindex, and delete actions.
+- Removed the Settings page `新增知识库` and `知识库条目` panels while keeping the legacy `知识库启用` setting toggle.
+- Added frontend client methods for `GET /college-knowledge/documents`, document upload, reindex, delete, and multipart chat.
+- Latest frontend validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.
+- Implemented the workbook-only award confidence frontend workflow inside `/scholarship-check` as a second tab named `奖项置信度`.
+- Added award-confidence API client methods for `POST /award-confidence/jobs`, `GET /award-confidence/jobs/:id`, and `GET /award-confidence/jobs/:id/result`.
+- The award confidence UI accepts one `.xlsx`, polls queued/processing jobs, previews confidence rows, formats scores to one decimal place, and enables result download when complete.
 - Completed the 2026-06-17 scholarship-check frontend follow-up: recent five records, backend-backed active job recovery, localStorage last-selection convenience, pause/resume/cancel controls, delete confirmation, manual row remark editing, manual refresh, and terminal-record download handling.
 - Added frontend API client methods for `GET /scholarship-check/jobs?limit=5`, row remark `PATCH`, job `DELETE`, and pause/resume/cancel lifecycle endpoints.
-- Current validation is limited by the local shell: `node`, `pnpm`, and `corepack` are not available on PATH, so direct frontend typecheck/build could not be run in this environment.
 - Implemented the scholarship material check frontend for `/scholarship-check`.
 - Added shared scholarship check job/row types and frontend API client methods for upload, polling, and result download.
 - Added sidebar navigation for `奖学金核对` and a compact operations-console page for workbook/folder selection, job progress, row preview, and Excel download.
@@ -153,3 +160,47 @@ All passed.
 - Added lifecycle controls with explicit confirmation for cancellation, record deletion with confirmation, retained-record selection, terminal-record download attempts, and row-level remark editing that preserves the four-line structure before calling `PATCH`.
 - Added CSS for recent records, compact lifecycle controls, paused/cancelled status states, and in-table remark editing while keeping the operations-console visual language.
 - Attempted validation with `pnpm --filter @harmonia/web typecheck`, `node --version`, `corepack --version`, and `where.exe node/pnpm`; all failed because the commands are unavailable on PATH in this shell.
+
+### 2026-06-17 Award Confidence Frontend
+
+- Read the new Award Confidence Workbook Module UI section in `docs/scholarship-check-frontend-agent.md` and the recorded backend API surface in `docs/scholarship-check-backend-agent.md`.
+- Added award-confidence client calls in `apps/web/src/api/client.ts` for create, poll, and result download.
+- Reworked `apps/web/src/pages/ScholarshipCheckPage.tsx` into two tabs: `材料核对` for the existing proof-material workflow and `奖项置信度` for the new workbook-only workflow.
+- The new tab validates `.xlsx` selection client-side, uploads only the workbook, polls queued/processing jobs, renders row preview columns for sheet/name/awards/confidence/status/error, formats confidence scores to one decimal place, and downloads `奖项置信度结果.xlsx` after completion.
+- Added CSS for the segmented tabs, workbook status panel, award-confidence table, award job/row statuses, and confidence score bands.
+- Validation: direct `pnpm`/`node` shell commands are unavailable on PATH; TypeScript diagnostics through the Node REPL reported only environment baseline issues for missing `vite/client` and `import.meta.env`, with no diagnostics in `ScholarshipCheckPage.tsx`.
+
+### 2026-06-17 Award Confidence History
+
+- Added award-confidence recent-record loading through `GET /award-confidence/jobs?limit=5`.
+- Added a `最近置信度记录` panel with record selection, active/paused recovery on route return, manual refresh, selected-record highlighting, and per-record delete buttons.
+- Removed award-confidence deletion from the current progress panel; `暂停`, `继续`, and `终止` remain process controls on the selected job.
+- Deleting the selected confidence record clears the preview and reloads backend history; deleting another record leaves the selected preview in place.
+- Validation passed: `pnpm --filter @harmonia/web typecheck`.
+
+### 2026-06-25 Material Check Structured Output
+
+- Replaced the material-check preview `错误` column with `详细情况`, leaving row-level technical `error` hidden from the table.
+- Changed row editing from a freeform remark textarea to fixed-status selectors plus per-category detail text inputs.
+- Updated the row edit API call to send both `remark` and `detail`.
+- Validation passed: `pnpm --filter @harmonia/web typecheck`.
+
+### 2026-06-25 Model Selection Configuration
+
+- Added a persisted model selector to the configuration page for scholarship material checks and award-confidence jobs.
+- The selector only exposes `qwen3-5-397b-a17b` and `gemma-4-31B`; API keys remain backend-local and are not sent to the frontend.
+
+### 2026-06-25 College Knowledge Q&A Planning
+
+- Added `docs/college-knowledge-frontend-agent.md` as the frontend-only requirements document for the new `书院知识问答` sidebar module.
+- Frontend scope: add `/college-knowledge`, build chat and document-ingestion tabs, consume backend RAG API contracts, display answer sources, and remove the settings-page `新增知识库` / `知识库条目` panels.
+- Boundary: frontend agents must not implement document parsing, Markdown conversion, chunking, retrieval, reranking, or answer generation.
+
+### 2026-06-25 College Knowledge Q&A Frontend
+
+- Added `/college-knowledge` as a keep-alive protected route and sidebar item labeled `书院知识问答`.
+- Implemented `apps/web/src/pages/CollegeKnowledgePage.tsx` with `知识问答` and `知识文档录入` tabs, local-only chat/upload state, optional image upload for chat, source reference rendering, and document status actions.
+- Extended `apps/web/src/api/client.ts` with college knowledge document list/upload/reindex/delete and multipart chat methods using shared `CollegeKnowledge*` types.
+- Removed the Settings page `新增知识库` and `知识库条目` panels and the page-local `KnowledgeEntry` state/load flow; left `knowledgeBaseEnabled` intact for legacy email processing.
+- Added college knowledge chat, source, upload, status, and responsive styles to `apps/web/src/styles/app.css`.
+- Validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.

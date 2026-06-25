@@ -1,6 +1,8 @@
 import type {
   AppSettings,
   AttachmentRecord,
+  CollegeKnowledgeDocument,
+  CollegeKnowledgeDocumentStatus,
   DraftStatus,
   ForwardRecord,
   KnowledgeEntry,
@@ -98,6 +100,44 @@ export type AuditRecord = AuditInput & {
   createdAt: string;
 };
 
+export type CollegeKnowledgeDocumentInput = Omit<CollegeKnowledgeDocument, "createdAt" | "updatedAt">;
+
+export type CollegeKnowledgeDocumentPatch = Partial<
+  Pick<
+    CollegeKnowledgeDocument,
+    | "fileName"
+    | "originalName"
+    | "relativePath"
+    | "contentType"
+    | "size"
+    | "sha256"
+    | "status"
+    | "error"
+    | "warnings"
+    | "storagePath"
+    | "extractedMarkdownPath"
+    | "metadataPath"
+    | "chunkCount"
+  >
+> & { status?: CollegeKnowledgeDocumentStatus };
+
+export type CollegeKnowledgeChunkRecord = {
+  id: string;
+  documentId: string;
+  chunkIndex: number;
+  title: string | null;
+  locator: string;
+  sourcePath: string | null;
+  text: string;
+  markdown: string;
+  metadata: Record<string, unknown>;
+  tokenCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CollegeKnowledgeChunkInput = Omit<CollegeKnowledgeChunkRecord, "createdAt" | "updatedAt">;
+
 export interface AppRepository {
   migrate(): Promise<void>;
   close(): Promise<void>;
@@ -134,6 +174,15 @@ export interface AppRepository {
 
   listKnowledgeEntries(category?: KnowledgeEntry["category"]): Promise<KnowledgeEntry[]>;
   upsertKnowledgeEntry(input: Omit<KnowledgeEntry, "createdAt" | "updatedAt">): Promise<KnowledgeEntry>;
+
+  upsertCollegeKnowledgeDocument(input: CollegeKnowledgeDocumentInput): Promise<CollegeKnowledgeDocument>;
+  updateCollegeKnowledgeDocument(id: string, patch: CollegeKnowledgeDocumentPatch): Promise<CollegeKnowledgeDocument>;
+  getCollegeKnowledgeDocument(id: string): Promise<CollegeKnowledgeDocument | null>;
+  getCollegeKnowledgeDocumentBySha256(sha256: string): Promise<CollegeKnowledgeDocument | null>;
+  listCollegeKnowledgeDocuments(): Promise<CollegeKnowledgeDocument[]>;
+  replaceCollegeKnowledgeChunks(documentId: string, chunks: CollegeKnowledgeChunkInput[]): Promise<void>;
+  listCollegeKnowledgeChunks(documentId?: string): Promise<CollegeKnowledgeChunkRecord[]>;
+  deleteCollegeKnowledgeDocument(id: string): Promise<boolean>;
 
   dashboard(nowIso: string): Promise<{
     pendingMessages: number;

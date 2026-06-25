@@ -2,28 +2,16 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import type { ScholarshipCheckJob, ScholarshipCheckRow } from "@harmonia/shared";
+import type { AwardConfidenceJob, AwardConfidenceRow } from "@harmonia/shared";
 import type { AiClient } from "../ai/client.js";
 import { NoopAiClient } from "../ai/client.js";
-import { evidenceByCategory, matchEvidenceForApplicant, parseEvidencePath, safePathSegments } from "./evidence.js";
-import { buildCheckResult, emptyDetail, scholarshipRemarkStatusValues } from "./remarks.js";
-import type { EvidenceRecord, ScholarshipCheckJobInternal, ScholarshipCheckJobSnapshot } from "./types.js";
-import { categoryLabels, scholarshipCheckCategories } from "./types.js";
-import { buildAiVerifiedCheckResult, type ScholarshipAiVerifierOptions } from "./verifier.js";
-import { parseApplicants, writeProcessedWorkbook } from "./workbook.js";
-
-type TempEvidenceFile = {
-  tempPath: string;
-  fileName: string;
-  contentType: string | null;
-};
+import { buildAwardConfidenceEvaluationInput, scoreAwardConfidence } from "./scoring.js";
+import type { AwardConfidenceJobInternal, AwardConfidenceJobSnapshot } from "./types.js";
+import { parseAwardConfidenceWorkbook, writeAwardConfidenceWorkbook } from "./workbook.js";
 
 type CreateJobInput = {
   workbookTempPath: string;
   workbookFileName: string;
-  evidenceFiles: TempEvidenceFile[];
-  evidencePaths: string[];
-  mode: "ai" | "dry_run";
 };
 
 type RecentIndex = {
@@ -33,92 +21,73 @@ type RecentIndex = {
 const indexFileName = "index.json";
 const retentionLimit = 5;
 const restartPauseMessage = "\u4efb\u52a1\u56e0\u670d\u52a1\u91cd\u542f\u5df2\u6682\u505c\uff0c\u53ef\u70b9\u51fb\u7ee7\u7eed\u6062\u590d\u3002";
-const unfinishedRemark = scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：部分材料缺失`).join("\n");
-const unfinishedDetail = emptyDetail();
 
 class PauseSignal extends Error {
   constructor() {
-    super("SCHOLARSHIP_CHECK_PAUSED");
+    super("AWARD_CONFIDENCE_PAUSED");
   }
 }
 
 class CancelSignal extends Error {
   constructor() {
-    super("SCHOLARSHIP_CHECK_CANCELLED");
+    super("AWARD_CONFIDENCE_CANCELLED");
   }
 }
 
-export class ScholarshipCheckService {
-  private readonly jobs = new Map<string, ScholarshipCheckJobSnapshot>();
+export class AwardConfidenceService {
+  private readonly jobs = new Map<string, AwardConfidenceJobSnapshot>();
   private readonly activeProcesses = new Set<string>();
   private readonly resumeRequests = new Set<string>();
   private readonly deletedJobs = new Set<string>();
   private readonly storageRoot: string;
   private readonly ai: AiClient;
-  private readonly verifierOptions: ScholarshipAiVerifierOptions;
   private readonly initPromise: Promise<void>;
 
-  constructor(storageRoot = "storage/scholarship-check", ai: AiClient = new NoopAiClient(), verifierOptions: ScholarshipAiVerifierOptions = {}) {
+  constructor(storageRoot = "storage/award-confidence", ai: AiClient = new NoopAiClient()) {
     this.storageRoot = isAbsolute(storageRoot) ? storageRoot : resolve(findWorkspaceRoot(), storageRoot);
     this.ai = ai;
-    this.verifierOptions = verifierOptions;
     this.initPromise = this.initialize();
   }
 
-  async createJob(input: CreateJobInput): Promise<ScholarshipCheckJob> {
+  async createJob(input: CreateJobInput): Promise<AwardConfidenceJob> {
     await this.ready();
     if (!input.workbookFileName.toLowerCase().endsWith(".xlsx")) {
-      throw new Error("WORKBOOK_MUST_BE_XLSX");
+      throw new Error("AWARD_CONFIDENCE_WORKBOOK_MUST_BE_XLSX");
     }
-    if (input.evidenceFiles.length === 0) {
-      throw new Error("EVIDENCE_FILES_REQUIRED");
-    }
-    if (input.evidencePaths.length !== input.evidenceFiles.length) {
-      throw new Error("EVIDENCE_PATHS_MISMATCH");
-    }
-
     const id = randomUUID();
     this.deletedJobs.delete(id);
     const createdAt = new Date().toISOString();
     const rootDir = join(this.storageRoot, id);
     const inputDir = join(rootDir, "input");
-    const evidenceRoot = join(rootDir, "evidence");
     await mkdir(inputDir, { recursive: true });
-    await mkdir(evidenceRoot, { recursive: true });
-
     const workbookPath = join(inputDir, "workbook.xlsx");
     try {
       await rename(input.workbookTempPath, workbookPath);
-      const applicants = parseApplicants(workbookPath);
-      const evidence = await this.moveEvidenceFiles(evidenceRoot, input.evidenceFiles, input.evidencePaths);
-      await writeJson(join(rootDir, "evidence.json"), evidence);
-
-      const job: ScholarshipCheckJobInternal = {
+      const sourceRows = parseAwardConfidenceWorkbook(workbookPath);
+      const job: AwardConfidenceJobInternal = {
         id,
         status: "queued",
         createdAt,
         updatedAt: createdAt,
-        totalApplicants: applicants.length,
-        processedApplicants: 0,
+        totalRows: sourceRows.length,
+        processedRows: 0,
         error: null,
-        mode: input.mode,
         rootDir,
         workbookPath,
         resultPath: null
       };
-      const rows: ScholarshipCheckRow[] = applicants.map((applicant) => ({
-        rowNumber: applicant.rowNumber,
-        name: applicant.name,
-        studentId: applicant.studentId,
+      const rows: AwardConfidenceRow[] = sourceRows.map((sourceRow) => ({
+        sheetName: sourceRow.sheetName,
+        rowNumber: sourceRow.rowNumber,
+        name: sourceRow.name,
+        firstAward: sourceRow.firstAward,
+        secondAward: sourceRow.secondAward,
+        firstAwardConfidence: null,
+        secondAwardConfidence: null,
         status: "pending",
-        remark: null,
-        detail: null,
-        error: null,
-        editedAt: null,
-        editedBy: null
+        error: null
       }));
-      const snapshot = { job, rows };
-      await this.saveSnapshot(snapshot);
+      await this.saveSnapshot({ job, rows });
       await this.enforceRetention();
       void this.processJob(id);
       return publicJob(job);
@@ -130,49 +99,33 @@ export class ScholarshipCheckService {
     }
   }
 
-  async listJobs(limit = retentionLimit): Promise<{ items: ScholarshipCheckJob[]; total: number }> {
+  async listJobs(limit = retentionLimit): Promise<{ items: AwardConfidenceJob[]; total: number }> {
     await this.ready();
     const index = await this.loadIndex();
-    const snapshots = (await Promise.all(index.ids.map((id) => this.loadSnapshot(id)))).filter((item): item is ScholarshipCheckJobSnapshot => Boolean(item));
+    const snapshots = (await Promise.all(index.ids.map((id) => this.loadSnapshot(id)))).filter((item): item is AwardConfidenceJobSnapshot => Boolean(item));
     const items = snapshots.map((snapshot) => publicJob(snapshot.job)).slice(0, Math.max(1, Math.min(50, limit)));
     return { items, total: snapshots.length };
   }
 
-  async getJob(id: string): Promise<{ job: ScholarshipCheckJob; rows: ScholarshipCheckRow[] } | null> {
+  async getJob(id: string): Promise<{ job: AwardConfidenceJob; rows: AwardConfidenceRow[] } | null> {
     await this.ready();
     const snapshot = await this.loadSnapshot(id);
     return snapshot ? { job: publicJob(snapshot.job), rows: snapshot.rows } : null;
   }
 
-  async updateRow(
-    id: string,
-    rowNumber: number,
-    remark: string,
-    detail: string,
-    editedBy: string | null
-  ): Promise<{ job: ScholarshipCheckJob; row: ScholarshipCheckRow } | null> {
+  async resultPath(id: string): Promise<string | null> {
     await this.ready();
-    validateRemark(remark);
-    validateDetail(detail);
     const snapshot = await this.loadSnapshot(id);
-    if (!snapshot) return null;
-    const row = snapshot.rows.find((item) => item.rowNumber === rowNumber);
-    if (!row) return null;
-    row.remark = remark;
-    row.detail = detail;
-    row.status = "completed";
-    row.error = null;
-    row.editedAt = new Date().toISOString();
-    row.editedBy = editedBy;
-    snapshot.job.updatedAt = row.editedAt;
-    if (canGenerateResult(snapshot.job.status)) {
-      await this.generateResult(snapshot);
-    }
-    await this.saveSnapshot(snapshot);
-    return { job: publicJob(snapshot.job), row };
+    if (!snapshot || (snapshot.job.status !== "completed" && snapshot.job.status !== "cancelled")) return null;
+    return snapshot.job.resultPath && existsSync(snapshot.job.resultPath) ? snapshot.job.resultPath : null;
   }
 
-  async pauseJob(id: string): Promise<{ job: ScholarshipCheckJob; rows: ScholarshipCheckRow[] } | null> {
+  async isKnownJob(id: string): Promise<boolean> {
+    await this.ready();
+    return Boolean(await this.loadSnapshot(id));
+  }
+
+  async pauseJob(id: string): Promise<{ job: AwardConfidenceJob; rows: AwardConfidenceRow[] } | null> {
     await this.ready();
     const snapshot = await this.loadSnapshot(id);
     if (!snapshot) return null;
@@ -185,7 +138,7 @@ export class ScholarshipCheckService {
     return { job: publicJob(snapshot.job), rows: snapshot.rows };
   }
 
-  async resumeJob(id: string): Promise<{ job: ScholarshipCheckJob; rows: ScholarshipCheckRow[] } | null> {
+  async resumeJob(id: string): Promise<{ job: AwardConfidenceJob; rows: AwardConfidenceRow[] } | null> {
     await this.ready();
     const snapshot = await this.loadSnapshot(id);
     if (!snapshot) return null;
@@ -206,7 +159,7 @@ export class ScholarshipCheckService {
     return { job: publicJob(snapshot.job), rows: snapshot.rows };
   }
 
-  async cancelJob(id: string): Promise<{ job: ScholarshipCheckJob; rows: ScholarshipCheckRow[] } | null> {
+  async cancelJob(id: string): Promise<{ job: AwardConfidenceJob; rows: AwardConfidenceRow[] } | null> {
     await this.ready();
     const snapshot = await this.loadSnapshot(id);
     if (!snapshot) return null;
@@ -218,8 +171,7 @@ export class ScholarshipCheckService {
       for (const row of snapshot.rows) {
         if (row.status === "pending" || row.status === "processing") {
           row.status = "cancelled";
-          row.remark = row.remark ?? unfinishedRemark;
-          row.detail = row.detail ?? unfinishedDetail;
+          row.error = null;
         }
       }
       await this.generateResult(snapshot);
@@ -240,22 +192,6 @@ export class ScholarshipCheckService {
     return true;
   }
 
-  async resultPath(id: string): Promise<string | null> {
-    await this.ready();
-    const snapshot = await this.loadSnapshot(id);
-    if (!snapshot || !canGenerateResult(snapshot.job.status)) return null;
-    if (!snapshot.job.resultPath || !existsSync(snapshot.job.resultPath)) {
-      await this.generateResult(snapshot);
-      await this.saveSnapshot(snapshot);
-    }
-    return snapshot.job.resultPath && existsSync(snapshot.job.resultPath) ? snapshot.job.resultPath : null;
-  }
-
-  async isKnownJob(id: string): Promise<boolean> {
-    await this.ready();
-    return Boolean(await this.loadSnapshot(id));
-  }
-
   private async processJob(id: string): Promise<void> {
     await this.ready();
     if (this.activeProcesses.has(id)) return;
@@ -272,48 +208,24 @@ export class ScholarshipCheckService {
       snapshot.job.error = null;
       snapshot.job.updatedAt = new Date().toISOString();
       await this.saveSnapshot(snapshot);
-
-      const applicants = parseApplicants(snapshot.job.workbookPath);
-      const evidence = (await readJson<EvidenceRecord[]>(join(snapshot.job.rootDir, "evidence.json"))) ?? [];
-
-      for (const applicant of applicants) {
-        await this.ensureRunnable(id);
-        const row = snapshot.rows.find((item) => item.rowNumber === applicant.rowNumber);
+      const sourceRows = parseAwardConfidenceWorkbook(snapshot.job.workbookPath);
+      for (const sourceRow of sourceRows) {
+        await this.checkControl(id);
+        const row = snapshot.rows.find((item) => item.sheetName === sourceRow.sheetName && item.rowNumber === sourceRow.rowNumber);
         if (!row || row.status === "completed" || row.status === "cancelled") continue;
         row.status = "processing";
         row.error = null;
         snapshot.job.updatedAt = new Date().toISOString();
         await this.saveSnapshot(snapshot);
-
-        const applicantEvidence = evidenceByCategory(matchEvidenceForApplicant(applicant, evidence));
-        const result =
-          snapshot.job.mode === "dry_run"
-            ? buildCheckResult({
-                collegeContribution: { declaredText: applicant.categories.collegeContribution, evidence: applicantEvidence.collegeContribution },
-                studentOrganization: { declaredText: applicant.categories.studentOrganization, evidence: applicantEvidence.studentOrganization },
-                socialPractice: { declaredText: applicant.categories.socialPractice, evidence: applicantEvidence.socialPractice },
-                award: { declaredText: applicant.categories.award, evidence: applicantEvidence.award }
-              })
-            : await buildAiVerifiedCheckResult({
-                ai: this.ai,
-                applicant,
-                evidenceByCategory: applicantEvidence,
-                options: {
-                  ...this.verifierOptions,
-                  beforeModelRequest: () => this.ensureRunnable(id)
-                }
-              });
-        await this.ensureRunnable(id);
-        if (!row.editedAt) {
-          row.remark = result.remark;
-          row.detail = result.detail;
-        }
+        await this.checkControl(id);
+        row.firstAwardConfidence = await this.scoreAward(sourceRow, sourceRow.firstAward);
+        await this.checkControl(id);
+        row.secondAwardConfidence = await this.scoreAward(sourceRow, sourceRow.secondAward);
         row.status = "completed";
         row.error = null;
         snapshot.job.updatedAt = new Date().toISOString();
         await this.saveSnapshot(snapshot);
       }
-
       await this.generateResult(snapshot);
       snapshot.job.status = "completed";
       snapshot.job.error = null;
@@ -333,25 +245,27 @@ export class ScholarshipCheckService {
         const current = (await this.loadSnapshot(id)) ?? snapshot;
         if (this.deletedJobs.has(id)) return;
         current.job.status = "cancelled";
+        current.job.error = null;
         current.job.updatedAt = new Date().toISOString();
         for (const row of current.rows) {
           if (row.status === "pending" || row.status === "processing") {
             row.status = "cancelled";
-            row.remark = row.remark ?? unfinishedRemark;
-            row.detail = row.detail ?? unfinishedDetail;
+            row.error = null;
           }
         }
-        await this.tryGenerateResult(current);
+        await this.generateResult(current);
         await this.saveSnapshot(current);
       } else {
         if (this.deletedJobs.has(id)) return;
         snapshot.job.status = "failed";
-        snapshot.job.error = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+        snapshot.job.error = error instanceof Error ? error.message : "AWARD_CONFIDENCE_JOB_FAILED";
         snapshot.job.updatedAt = new Date().toISOString();
         for (const row of snapshot.rows) {
-          if (row.status === "processing" || row.status === "pending") row.status = "failed";
+          if (row.status === "pending" || row.status === "processing") {
+            row.status = "failed";
+            row.error = snapshot.job.error;
+          }
         }
-        await this.tryGenerateResult(snapshot);
         await this.saveSnapshot(snapshot);
       }
     } finally {
@@ -363,43 +277,48 @@ export class ScholarshipCheckService {
     }
   }
 
-  private async ensureRunnable(id: string): Promise<void> {
+  private async checkControl(id: string): Promise<void> {
     const snapshot = await this.loadSnapshot(id);
     if (!snapshot || snapshot.job.status === "cancelled") throw new CancelSignal();
     if (snapshot.job.status === "paused") throw new PauseSignal();
   }
 
-  private async generateResult(snapshot: ScholarshipCheckJobSnapshot): Promise<void> {
-    const applicants = parseApplicants(snapshot.job.workbookPath);
-    const results = new Map<number, { remark: string; detail: string }>();
-    for (const row of snapshot.rows) {
-      results.set(row.rowNumber, { remark: row.remark ?? unfinishedRemark, detail: row.detail ?? unfinishedDetail });
-    }
+  private async generateResult(snapshot: AwardConfidenceJobSnapshot): Promise<void> {
+    if (this.deletedJobs.has(snapshot.job.id)) return;
     const resultPath = join(snapshot.job.rootDir, "result.xlsx");
-    writeProcessedWorkbook(applicants, results, resultPath);
+    writeAwardConfidenceWorkbook(snapshot.job.workbookPath, snapshot.rows, resultPath);
     snapshot.job.resultPath = resultPath;
   }
 
-  private async tryGenerateResult(snapshot: ScholarshipCheckJobSnapshot): Promise<void> {
-    try {
-      await this.generateResult(snapshot);
-    } catch {
-      snapshot.job.resultPath = null;
-    }
+  private async scoreAward(sourceRow: ReturnType<typeof parseAwardConfidenceWorkbook>[number], awardValue: string | null): Promise<number | null> {
+    const input = buildAwardConfidenceEvaluationInput(sourceRow, awardValue);
+    if (!input) return null;
+    const evaluation = await this.ai.evaluateAwardConfidence(input);
+    return scoreAwardConfidence(awardValue, evaluation);
   }
 
-  private async moveEvidenceFiles(evidenceRoot: string, evidenceFiles: TempEvidenceFile[], evidencePaths: string[]): Promise<EvidenceRecord[]> {
-    const records: EvidenceRecord[] = [];
-    for (const [index, file] of evidenceFiles.entries()) {
-      const rawRelativePath = evidencePaths[index] ?? file.fileName;
-      const segments = safePathSegments(rawRelativePath);
-      const storedRelativePath = segments.join("/") || `${index}-${file.fileName}`;
-      const localPath = join(evidenceRoot, ...safePathSegments(storedRelativePath));
-      await mkdir(dirname(localPath), { recursive: true });
-      await rename(file.tempPath, localPath);
-      records.push(parseEvidencePath(rawRelativePath, localPath, file.contentType));
-    }
-    return records;
+  private async loadSnapshot(id: string): Promise<AwardConfidenceJobSnapshot | null> {
+    if (this.deletedJobs.has(id)) return null;
+    const cached = this.jobs.get(id);
+    if (cached) return cached;
+    const snapshot = await readJson<AwardConfidenceJobSnapshot>(join(this.storageRoot, id, "job.json"));
+    if (this.deletedJobs.has(id)) return null;
+    if (snapshot) this.jobs.set(id, snapshot);
+    return snapshot;
+  }
+
+  private async saveSnapshot(snapshot: AwardConfidenceJobSnapshot): Promise<void> {
+    if (this.deletedJobs.has(snapshot.job.id)) return;
+    snapshot.job.processedRows = snapshot.rows.filter((row) => row.status === "completed").length;
+    if (this.deletedJobs.has(snapshot.job.id)) return;
+    await mkdir(snapshot.job.rootDir, { recursive: true });
+    if (await this.cleanupIfDeleted(snapshot)) return;
+    await writeJson(join(snapshot.job.rootDir, "job.json"), snapshot);
+    if (await this.cleanupIfDeleted(snapshot)) return;
+    this.jobs.set(snapshot.job.id, snapshot);
+    if (await this.cleanupIfDeleted(snapshot)) return;
+    await this.touchIndex(snapshot.job.id);
+    await this.cleanupIfDeleted(snapshot);
   }
 
   private async initialize(): Promise<void> {
@@ -427,7 +346,7 @@ export class ScholarshipCheckService {
       }
     }
     const ordered = (await Promise.all(ids.map((id) => this.loadSnapshot(id))))
-      .filter((item): item is ScholarshipCheckJobSnapshot => Boolean(item))
+      .filter((item): item is AwardConfidenceJobSnapshot => Boolean(item))
       .sort((a, b) => b.job.createdAt.localeCompare(a.job.createdAt))
       .map((snapshot) => snapshot.job.id);
     await this.writeIndex(ordered.slice(0, retentionLimit));
@@ -447,36 +366,6 @@ export class ScholarshipCheckService {
     } catch {
       return [];
     }
-  }
-
-  private async loadSnapshot(id: string): Promise<ScholarshipCheckJobSnapshot | null> {
-    if (this.deletedJobs.has(id)) return null;
-    const cached = this.jobs.get(id);
-    if (cached) {
-      normalizeSnapshot(cached);
-      return cached;
-    }
-    const snapshot = await readJson<ScholarshipCheckJobSnapshot>(join(this.storageRoot, id, "job.json"));
-    if (this.deletedJobs.has(id)) return null;
-    if (snapshot) {
-      normalizeSnapshot(snapshot);
-      this.jobs.set(id, snapshot);
-    }
-    return snapshot;
-  }
-
-  private async saveSnapshot(snapshot: ScholarshipCheckJobSnapshot): Promise<void> {
-    if (this.deletedJobs.has(snapshot.job.id)) return;
-    snapshot.job.processedApplicants = snapshot.rows.filter((row) => row.status === "completed").length;
-    if (this.deletedJobs.has(snapshot.job.id)) return;
-    await mkdir(snapshot.job.rootDir, { recursive: true });
-    if (await this.cleanupIfDeleted(snapshot)) return;
-    await writeJson(join(snapshot.job.rootDir, "job.json"), snapshot);
-    if (await this.cleanupIfDeleted(snapshot)) return;
-    this.jobs.set(snapshot.job.id, snapshot);
-    if (await this.cleanupIfDeleted(snapshot)) return;
-    await this.touchIndex(snapshot.job.id);
-    await this.cleanupIfDeleted(snapshot);
   }
 
   private async loadIndex(): Promise<RecentIndex> {
@@ -500,7 +389,7 @@ export class ScholarshipCheckService {
     await this.writeIndex(index.ids.filter((item) => item !== id));
   }
 
-  private async cleanupIfDeleted(snapshot: ScholarshipCheckJobSnapshot): Promise<boolean> {
+  private async cleanupIfDeleted(snapshot: AwardConfidenceJobSnapshot): Promise<boolean> {
     if (!this.deletedJobs.has(snapshot.job.id)) return false;
     this.jobs.delete(snapshot.job.id);
     await rm(snapshot.job.rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -532,58 +421,28 @@ export class ScholarshipCheckService {
   }
 }
 
-export function scholarshipCheckStorageRoot(storageRoot = "storage/scholarship-check"): string {
+export function awardConfidenceStorageRoot(storageRoot = "storage/award-confidence"): string {
   return isAbsolute(storageRoot) ? storageRoot : resolve(findWorkspaceRoot(), storageRoot);
 }
 
-function publicJob(job: ScholarshipCheckJobInternal): ScholarshipCheckJob {
+export async function cleanupAwardConfidenceTempFiles(paths: string[]): Promise<void> {
+  await Promise.all(paths.map((path) => rm(path, { force: true }).catch(() => undefined)));
+}
+
+function publicJob(job: AwardConfidenceJobInternal): AwardConfidenceJob {
   return {
     id: job.id,
     status: job.status,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
-    totalApplicants: job.totalApplicants,
-    processedApplicants: job.processedApplicants,
+    totalRows: job.totalRows,
+    processedRows: job.processedRows,
     error: job.error
   };
 }
 
-function canGenerateResult(status: ScholarshipCheckJob["status"]): boolean {
+function canRemoveForRetention(status: AwardConfidenceJob["status"]): boolean {
   return status === "completed" || status === "cancelled" || status === "failed";
-}
-
-function canRemoveForRetention(status: ScholarshipCheckJob["status"]): boolean {
-  return status === "completed" || status === "cancelled" || status === "failed";
-}
-
-function validateRemark(remark: string): void {
-  const lines = remark.replace(/\r\n/g, "\n").split("\n");
-  if (lines.length !== scholarshipCheckCategories.length) throw new Error("SCHOLARSHIP_CHECK_REMARK_FORMAT_INVALID");
-  scholarshipCheckCategories.forEach((category, index) => {
-    const label = categoryLabels[category];
-    const line = lines[index] ?? "";
-    const value = line.startsWith(`${label}：`) ? line.slice(label.length + 1).trim() : line.startsWith(`${label}:`) ? line.slice(label.length + 1).trim() : "";
-    if (!value || !scholarshipRemarkStatusValues.includes(value as (typeof scholarshipRemarkStatusValues)[number])) {
-      throw new Error("SCHOLARSHIP_CHECK_REMARK_FORMAT_INVALID");
-    }
-  });
-}
-
-function validateDetail(detail: string): void {
-  const lines = detail.replace(/\r\n/g, "\n").split("\n");
-  if (lines.length !== scholarshipCheckCategories.length) throw new Error("SCHOLARSHIP_CHECK_DETAIL_FORMAT_INVALID");
-  scholarshipCheckCategories.forEach((category, index) => {
-    const label = categoryLabels[category];
-    const line = lines[index] ?? "";
-    const value = line.startsWith(`${label}：`) ? line.slice(label.length + 1).trim() : line.startsWith(`${label}:`) ? line.slice(label.length + 1).trim() : "";
-    if (!value) throw new Error("SCHOLARSHIP_CHECK_DETAIL_FORMAT_INVALID");
-  });
-}
-
-function normalizeSnapshot(snapshot: ScholarshipCheckJobSnapshot): void {
-  for (const row of snapshot.rows) {
-    row.detail ??= null;
-  }
 }
 
 function uniqueIds(ids: string[]): string[] {

@@ -58,6 +58,7 @@ Processed workbook sample:
   - `学院违纪情况`
   - `书院违纪情况`
   - `核对情况备注`
+  - `详细情况`
 
 Output should follow the processed workbook column order. For the first version, default `学院违纪情况` and `书院违纪情况` to `无违纪记录` unless a later requirement provides a data source.
 
@@ -89,19 +90,15 @@ The `核对情况备注` field must be exactly four lines, in this order:
 奖项：...
 ```
 
-Use concise reviewer-facing Chinese. Existing examples include:
+Each `核对情况备注` line must use one of exactly five fixed business statuses:
 
 - `无问题`
 - `未填写`
 - `无证明材料`
-- `部分条目无证明材料`
-- `大学参与内容无法确认`
-- `学院参与内容无法确认`
-- `学助工作已有薪资，不算做书院贡献`
-- `活动参与者不算做书院贡献`
-- Specific mismatch notes, for example `学生大使担任的时间与证明材料不一致`
+- `部分材料缺失`
+- `部分材料不匹配`
 
-The implementation may return richer structured details internally, but the workbook cell should keep this compact four-line format.
+The `详细情况` field must also use the same four-line category order and explain the reason for each status. The row/job `error` fields are reserved for technical failures, not business material-check explanations.
 
 ## Backend Scope
 
@@ -241,12 +238,15 @@ Request:
 ```ts
 {
   remark: string;
+  detail: string;
 }
 ```
 
 Rules:
 
 - Validate the remark still follows the required four-line category format.
+- Validate each remark line uses one of the five allowed statuses.
+- Validate detail follows the same four-line category format.
 - Save the edited row persistently.
 - Regenerate or mark the result workbook stale and regenerate before the next download.
 - Record enough metadata to show that the row was manually edited, for example `editedAt` and `editedBy` if available.
@@ -314,6 +314,7 @@ Reference folder and workbook:
 Observed workbook structure:
 
 - Sheets include `总表` and award-specific sheets such as `①院长嘉许奖`, `②杰出领导力奖`, `③优秀服务奖`, `④卓越体育贡献奖`, and `⑤卓越才艺贡献奖`.
+- Only `总表` is used as the input source for award confidence calculation. Award-specific sheets are not parsed, not scored, and should not trigger AI calls.
 - Header row is row 1.
 - Important normalized columns:
   - `序号`
@@ -363,13 +364,26 @@ Response:
 {
   job: {
     id: string;
-    status: "queued" | "processing" | "completed" | "failed";
+    status: "queued" | "processing" | "paused" | "completed" | "failed" | "cancelled";
     createdAt: string;
     updatedAt: string;
     totalRows: number;
     processedRows: number;
     error: string | null;
   }
+}
+```
+
+`GET /award-confidence/jobs?limit=5`
+
+Return the five most recent retained award-confidence jobs, newest first. This endpoint is required so the frontend can recover records after logout/login, reload, or route switches.
+
+Response:
+
+```ts
+{
+  items: AwardConfidenceJob[];
+  total: number;
 }
 ```
 
@@ -388,11 +402,27 @@ Response:
     secondAward: string | null;
     firstAwardConfidence: number | null;
     secondAwardConfidence: number | null;
-    status: "pending" | "processing" | "completed" | "failed";
+    status: "pending" | "processing" | "completed" | "failed" | "cancelled";
     error: string | null;
   }>;
 }
 ```
+
+`POST /award-confidence/jobs/:id/pause`
+
+Pause a queued or processing job and persist the paused state.
+
+`POST /award-confidence/jobs/:id/resume`
+
+Resume a paused job. Any row left as `processing` should return to `pending` before processing restarts.
+
+`POST /award-confidence/jobs/:id/cancel`
+
+Cancel a queued, processing, or paused job. Preserve completed scores, mark unfinished rows `cancelled`, and generate a partial result workbook.
+
+`DELETE /award-confidence/jobs/:id`
+
+Delete a retained award-confidence record and remove it from the recent-job index. Deleting an in-flight job must prevent the background worker from recreating the snapshot.
 
 `GET /award-confidence/jobs/:id/result`
 
@@ -404,7 +434,8 @@ The backend must preserve the original workbook structure as much as practical:
 
 - Keep all original sheets.
 - Keep original columns and row order.
-- For every sheet whose normalized header contains the two award columns, append exactly two new columns at the end:
+- Only append confidence columns to `总表`; award-specific sheets and other sheets are preserved as-is.
+- For `总表`, append exactly two new columns at the end:
   - `第一奖项置信度`
   - `第二奖项置信度`
 - Values are numeric scores from `0` to `100`, rounded to one decimal place.
@@ -413,74 +444,52 @@ The backend must preserve the original workbook structure as much as practical:
 
 ### Quantitative Confidence Method
 
-The score measures how strongly the workbook's structured text supports each applied award. It is not proof-file verification and must not claim to validate external evidence. The first version should be deterministic and reproducible without a multimodal model.
+The score measures how strongly the workbook's structured text matches each applied award within the college-scholarship scope. It is not proof-file verification and must not claim to validate external evidence.
+
+Highest scoring principle: only college-related content may contribute to confidence. Count college life, college social/service contribution, dorm/residential service, college activities, college organizations, and sports/arts/talent contributions only when they are tied to college life or college activities. GPA, academic standing, major/discipline competitions, ordinary external awards, school/department awards, recommender completeness, and initial review status must not increase the score. Academic eligibility is assumed to have been checked upstream.
+
+The backend should use an AI text model to judge each material subitem under this college-related scope, then use a fixed formula to calculate the final confidence score.
 
 For each row and each applied award, compute:
 
 ```text
 confidence = round(100 * clamp(
-  0.10 * B_status
-+ 0.35 * D_award_support
-+ 0.20 * Q_proof_reliability
-+ 0.15 * T_text_relevance
-+ 0.10 * M_recommender_support
-+ 0.10 * G_academic_baseline
-- P_risk_penalty,
-0, 1), 1)
+  sum(AI_field_score[field] * award_profile_weight[field])
+  / sum(award_profile_weight[field])
+  - AI_risk_penalty,
+  0,
+  1
+), 1)
 ```
 
 Component definitions:
 
-- `B_status`: weak prior from `初审情况`.
-  - `入围` = `1.00`
-  - `未入围` = `0.35`
-  - blank/other = `0.60`
-- `D_award_support`: award-specific weighted support from relevant workbook fields. For each evidence dimension, parse numbered items and semicolon-delimited records. Use item count, point totals, and proof flags where available.
-  - Dimension score: `0.50 * min(pointsWithProof / targetPoints, 1) + 0.30 * proofItemRatio + 0.20 * min(itemCount / targetItems, 1)`
-  - If no explicit point values exist, use item count and proof ratio only.
-  - Default `targetItems = 3`; default `targetPoints = 10` unless a later rubric provides official thresholds.
-- `Q_proof_reliability`: reliability of declared support inside relevant fields.
-  - Count `有证明`, `无证明`, and equivalent English/Chinese terms.
-  - `Q = provenItems / declaredItems`; blank declared fields score `0`.
-  - Items marked `无证明` reduce this score even if the narrative is strong.
-- `T_text_relevance`: deterministic relevance between award profile and row text.
-  - Use normalized keyword coverage across `个人陈述`, relevant activity fields, `学生组织`, and `奖项/其他`.
-  - Maintain bilingual keyword dictionaries for sports, arts/talent, leadership, service, residential/community contribution, and academic excellence.
-  - Score `min(uniqueMatchedKeywordFamilies / requiredKeywordFamilies, 1)`, with required families per award profile.
-- `M_recommender_support`: recommendation completeness.
-  - two recommenders with identifiable contact text = `1.00`
-  - one recommender with identifiable contact text = `0.70`
-  - recommender text without contact cue = `0.40`
-  - no recommender = `0`
-- `G_academic_baseline`: parse GPA values from `学业表现`.
-  - Use the mean of numeric GPA values in the row.
-  - `G = clamp((meanGpa - 2.0) / 2.0, 0, 1)` for a 4.0 scale.
-  - If no GPA is parseable, use `0.50` instead of `0` to avoid over-penalizing non-academic awards.
-- `P_risk_penalty`: penalty from `核对备注说明` and negative evidence markers.
-  - Severe markers: `无效`, `无法证明`, `非本人`, `未体现学生姓名`, `非参赛人`, `非书院活动`.
-  - Moderate markers: `无证明`, `无法查证`, `不清晰`, `重复`, `报名表`, `照片`, `标红`.
-  - `P = min(0.35, 0.08 * severeCount + 0.04 * moderateCount)`.
+- `AI_field_score[field]`: an AI-generated `0` to `1` score for how well that field's college-related text matches the applied award.
+- The AI must judge these subitems under the college-related scope: `个人陈述`, `书院活动贡献`, `社会服务实践和成就`, `宿舍生活服务`, `学生组织`, sports-specific college fit, and arts/talent-specific college fit.
+- `学业表现` must receive `0` and is not weighted in the final formula.
+- `奖项/其他` is not directly weighted. It may only inform sports/arts/talent or other field scores when the item is explicitly tied to college life, college service, or college activities.
+- `AI_risk_penalty`: an AI-generated `0` to `0.35` penalty for explicit contradictions or negative notes in `核对备注说明`.
+- Do not use `初审情况` or recommender completeness as independent scoring factors for this module unless product later asks for eligibility/completeness scoring.
+- If an award cell is blank, the corresponding confidence remains blank and no AI call is made for that award.
 
-Award profile weights for `D_award_support`:
+Award profile weights for AI field scores:
 
-| Award | College contribution | Service practice | Dorm/residential service | Academic | Student org/leadership | Awards/general | Sports | Arts/talent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `院长嘉许奖` | 0.20 | 0.20 | 0.10 | 0.25 | 0.15 | 0.10 | 0.00 | 0.00 |
-| `杰出领导力奖` | 0.20 | 0.15 | 0.10 | 0.00 | 0.40 | 0.15 | 0.00 | 0.00 |
-| `优秀服务奖` | 0.25 | 0.35 | 0.25 | 0.00 | 0.10 | 0.05 | 0.00 | 0.00 |
-| `卓越体育贡献奖` | 0.15 | 0.05 | 0.00 | 0.05 | 0.20 | 0.05 | 0.50 | 0.00 |
-| `卓越才艺贡献奖` | 0.15 | 0.05 | 0.00 | 0.05 | 0.20 | 0.05 | 0.00 | 0.50 |
+| Award | Personal statement | College contribution | Service practice | Dorm/residential service | Student org/leadership | College sports fit | College arts/talent fit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `院长嘉许奖` | 0.15 | 0.30 | 0.20 | 0.15 | 0.20 | 0.00 | 0.00 |
+| `杰出领导力奖` | 0.10 | 0.20 | 0.10 | 0.10 | 0.50 | 0.00 | 0.00 |
+| `优秀服务奖` | 0.10 | 0.20 | 0.40 | 0.25 | 0.05 | 0.00 | 0.00 |
+| `卓越体育贡献奖` | 0.10 | 0.20 | 0.05 | 0.05 | 0.10 | 0.50 | 0.00 |
+| `卓越才艺贡献奖` | 0.10 | 0.20 | 0.05 | 0.05 | 0.10 | 0.00 | 0.50 |
 
 Dimension-to-column mapping:
 
 - College contribution: `书院活动贡献`
 - Service practice: `社会服务实践和成就`
 - Dorm/residential service: `宿舍生活服务`
-- Academic: `学业表现`
-- Student org/leadership: `学生组织`
-- Awards/general: `奖项/其他`
-- Sports: sports-related items in `奖项/其他`, `学生组织`, `书院活动贡献`, and `个人陈述`
-- Arts/talent: arts/talent-related items in `奖项/其他`, `学生组织`, `书院活动贡献`, and `个人陈述`
+- Student org/leadership: `学生组织`, but only college-related student organizations, leadership, or organizing work.
+- College sports fit: sports-related items in `奖项/其他`, `学生组织`, `书院活动贡献`, and `个人陈述`, but only when tied to college teams, college sports activities, college sports culture, or service to college peers. Pure competition rankings or external sports awards do not count.
+- College arts/talent fit: arts/talent-related items in `奖项/其他`, `学生组织`, `书院活动贡献`, and `个人陈述`, but only when tied to college activities, college culture, college public events, or service to college peers. Pure talent awards or external performances do not count.
 
 Score interpretation for UI and tests:
 
@@ -494,12 +503,17 @@ Score interpretation for UI and tests:
 Backend implementation must include tests for:
 
 - Parsing wrapped headers such as `申请奖项\r\n第一奖项`.
-- Generating exactly two appended columns and preserving all original sheets.
+- Generating exactly two appended columns on `总表` and preserving all original sheets.
+- Award-specific sheets are not parsed, not scored, and do not receive confidence columns.
 - Blank second award leaves `第二奖项置信度` blank.
 - Known negative notes reduce scores.
-- `有证明` versus `无证明` changes confidence in the expected direction.
+- AI is called once for each nonblank applied award and returns per-subitem field scores.
+- AI subitem scores drive the final weighted formula; high sports fit should favor `卓越体育贡献奖`, high service fit should favor `优秀服务奖`, etc.
 - Each supported award type uses the correct profile weights.
 - Invalid workbook or missing award columns returns a clear `400` error.
+- `GET /award-confidence/jobs?limit=5` lists and retains the latest five records.
+- `DELETE /award-confidence/jobs/:id` removes a record from both detail lookup and the recent list.
+- Pause/resume/cancel/delete do not recreate deleted in-flight jobs and do not corrupt partial result output.
 
 ## Processing Pipeline
 
@@ -512,23 +526,24 @@ Backend implementation must include tests for:
    - file type
    - local storage path
 4. Split applicant text fields into category items. The source fields commonly use numbered lines and semicolon-separated parts.
-5. For each applicant and category:
+5. For each applicant and category, produce one fixed business status plus a detail reason:
    - If the field is empty or `无`, remark `未填写`.
-   - If all declared items say `无证明` and no evidence files exist, remark `无证明材料`.
-   - If only some declared items lack support, remark `部分条目无证明材料`.
+   - If declared content exists but no evidence files exist, remark `无证明材料`.
+   - If only some declared items are supported, remark `部分材料缺失`.
+   - If evidence contradicts declared date, role, issuer, award, organization, or applicant name, remark `部分材料不匹配`.
    - If all required items are supported and no policy issue is found, remark `无问题`.
-   - If evidence contradicts declared date, role, issuer, award, organization, or applicant name, produce a specific mismatch note.
-6. Produce the processed workbook with the required columns and remark field.
+6. Produce the processed workbook with both `核对情况备注` and `详细情况`.
 
 ## AI / Multimodal Requirements
 
-Use a multimodal model for evidence understanding. During testing, use Alibaba Qwen 3.7 Plus through environment configuration. Do not hard-code API keys.
+Use a multimodal model for evidence understanding. During testing, use the CUHK local OpenAI-compatible endpoint through environment configuration. Do not hard-code API keys in source or docs.
 
 Required env behavior:
 
-- Read API key from an environment variable such as `OPENAI_VISION_API_KEY` or a new `SCHOLARSHIP_CHECK_AI_API_KEY`.
-- Default compatible endpoint may use `https://dashscope.aliyuncs.com/compatible-mode/v1`.
-- Default model may use `qwen3.7-plus`.
+- Read API key from an environment variable such as `OPENAI_VISION_API_KEY` or `SCHOLARSHIP_CHECK_AI_API_KEY`.
+- Default compatible endpoint is `https://ai-api.cuhk.edu.cn/v1`.
+- Supported local multimodal models are `qwen3-5-397b-a17b` and `gemma-4-31B`.
+- `SCHOLARSHIP_CHECK_AI_MODEL` is the startup default. Runtime settings expose `scholarshipCheckAiModel`, so the configuration page can manually select which supported model is used for new material-check and award-confidence calls.
 
 The user-provided key is sensitive. Do not commit it, echo it, log it, or write it into docs/source. It belongs only in local `.env`.
 
@@ -585,7 +600,8 @@ Add backend tests for:
 - Workbook column mapping from source format to processed format.
 - Remark formatting always produces the four required lines.
 - Applicant-to-folder matching handles Chinese and English names.
-- Missing evidence produces `无证明材料` or `部分条目无证明材料`.
+- Missing evidence produces `无证明材料` or `部分材料缺失`.
+- Mismatched evidence produces `部分材料不匹配` and writes the specific cause to `详细情况`.
 - Upload route rejects missing workbook, missing evidence path metadata, non-xlsx workbook, and unknown job download.
 
 If model calls cannot be used in tests, create a fake multimodal verifier.
@@ -595,7 +611,8 @@ If model calls cannot be used in tests, create a fake multimodal verifier.
 - The API accepts the original `.xlsx` plus evidence files and relative paths.
 - Backend creates a job and reports progress.
 - Backend writes a result `.xlsx` with processed workbook columns.
-- Every row has `核对情况备注` filled with the required four-line format.
+- Every row has `核对情况备注` filled with the required four-line fixed-status format.
+- Every row has `详细情况` filled with the matching four-line reason format.
 - Backend keeps the latest five check records persistently across logout/login and server restart.
 - Users can list, inspect, download, edit, and delete retained records.
 - Users can pause, resume, and cancel long-running checks without corrupting saved progress.
@@ -621,7 +638,7 @@ If model calls cannot be used in tests, create a fake multimodal verifier.
 
 - Added Qwen-compatible multimodal verification for scholarship check jobs.
 - Added `SCHOLARSHIP_CHECK_AI_API_KEY`, `SCHOLARSHIP_CHECK_AI_BASE_URL`, `SCHOLARSHIP_CHECK_AI_MODEL`, `SCHOLARSHIP_CHECK_AI_IMAGES_PER_REQUEST`, and `SCHOLARSHIP_CHECK_AI_PDF_IMAGE_WIDTH`.
-- Scholarship check AI defaults to `qwen3.7-plus` on the DashScope OpenAI-compatible endpoint and is independent from the mail workflow `AI_ENABLED` flag.
+- Historical note: this first implementation used `qwen3.7-plus` on the DashScope OpenAI-compatible endpoint. Current configuration is superseded by the CUHK local endpoint and settings-level model selector recorded below.
 - PDF proof files are rendered page-by-page into images and every page is submitted across model batches.
 - Image proof files are sent directly as image data URLs.
 - Added tests for full PDF page rendering and for default AI-mode verifier invocation with a fake multimodal client.
@@ -650,3 +667,63 @@ If model calls cannot be used in tests, create a fake multimodal verifier.
 - Row edits validate the required four-line category format, persist `editedAt`/`editedBy`, and regenerate downloadable results for terminal jobs.
 - Added backend tests for recent-job listing and retention, row remark editing, pause/resume, cancel, and partial workbook download.
 - Validation passed: `pnpm --filter @harmonia/api typecheck` and `pnpm --filter @harmonia/api test`.
+
+### 2026-06-17 Award Confidence Backend Implementation
+
+- Implemented the separate workbook-only award-confidence backend module under `apps/api/src/award-confidence/`.
+- Added authenticated APIs: `POST /award-confidence/jobs`, `GET /award-confidence/jobs/:id`, and `GET /award-confidence/jobs/:id/result`.
+- Added shared `AwardConfidenceJob` and `AwardConfidenceRow` API contract types in `packages/shared`.
+- Jobs save uploaded workbooks under `storage/award-confidence/{jobId}/`, parse sheets with wrapped award headers, process rows asynchronously, and write a result workbook to disk.
+- Result workbooks preserve original sheets and row order; only `总表` receives exactly `第一奖项置信度` and `第二奖项置信度` appended at the end.
+- Implemented AI-backed confidence scoring from workbook text only: the AI judges each material subitem against the applied award, and the backend applies fixed award-profile weights plus AI risk penalty.
+- Blank award cells produce blank confidence cells in the output workbook.
+- Added backend tests for wrapped headers, preserving sheets, exactly two appended columns, blank second-award output, negative-note penalty, proof/no-proof score direction, award profile weights, and invalid upload handling.
+- During full validation, fixed background-job test isolation by placing auto-generated test storage roots in the OS temp directory when no explicit root is injected.
+- During full validation, fixed a scholarship-check pause/resume race so a resume request received before the previous worker exits is queued and restarted after the active worker finishes.
+- Validation passed: `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/api test`, and `pnpm review`.
+
+### 2026-06-17 Award Confidence Lifecycle Controls
+
+- Added backend lifecycle APIs for award-confidence jobs: `POST /award-confidence/jobs/:id/pause`, `POST /award-confidence/jobs/:id/resume`, `POST /award-confidence/jobs/:id/cancel`, and `DELETE /award-confidence/jobs/:id`.
+- Extended award-confidence job statuses to include `paused` and `cancelled`, and row statuses to include `cancelled`.
+- Processing now checks control state between rows and before starting each new AI scoring request; in-flight model calls are allowed to return before pause/cancel is finalized.
+- Cancelled award-confidence jobs generate a partial result workbook with completed scores preserved and unfinished score cells left blank.
+- Deleting an in-flight award-confidence job removes its stored files and prevents the background worker from recreating the deleted snapshot.
+
+### 2026-06-17 Award Confidence College-Scope Formula Update
+
+- Updated the award-confidence scoring principle so only college-related content contributes to confidence: college life, social/service contribution, dorm/residential service, college activities, college organizations, and college-scoped sports/arts/talent contribution.
+- Removed `学业表现` and generic `奖项/其他` from direct formula weights because GPA/academic eligibility and ordinary awards are upstream or out of scope.
+- Updated the AI scoring prompt to ignore GPA, academic standing, ordinary external awards, school/department awards, pure competition rankings, recommender completeness, and initial review status.
+- Added backend tests proving academic and generic award scores do not change the final confidence value.
+
+### 2026-06-17 Award Confidence History Records
+
+- Added persistent `index.json` management under `storage/award-confidence/` for the award-confidence module.
+- Added authenticated `GET /award-confidence/jobs?limit=5` so clients can list the latest retained confidence records after logout/login, reload, or route switches.
+- Award-confidence records now follow the same retention expectation as material checks: keep the latest five terminal records while preserving active records until they finish or are explicitly deleted.
+- Deleting an award-confidence record removes its stored job directory and removes the job ID from the recent-record index.
+- Startup recovery reconciles indexed jobs with on-disk snapshots and marks previously `queued` or `processing` records as `paused` with a recoverable restart message.
+- Added backend tests for award-confidence recent-job retention and deletion from the recent list.
+
+### 2026-06-25 Structured Material Check Output
+
+- Split material-check business output into fixed-status `核对情况备注` and reason-bearing `详细情况`.
+- Kept row/job `error` fields for technical failures only; business explanations now live in `detail`.
+- Updated processed workbook generation to include both `核对情况备注` and `详细情况`.
+- Updated manual row edit API to require both `remark` and `detail`, with four-line category validation.
+- Added backend tests for fixed statuses, AI mismatch/missing mappings, four-line detail output, workbook columns, and edited download regeneration.
+
+### 2026-06-25 CUHK Local Model Configuration
+
+- Switched the current default OpenAI-compatible endpoint to `https://ai-api.cuhk.edu.cn/v1`.
+- Updated the default selected multimodal model to `qwen3-5-397b-a17b`; `gemma-4-31B` is available as the alternate supported model.
+- Added `scholarshipCheckAiModel` to persisted app settings and `scholarship_check_ai_model` to SQLite/Postgres settings storage.
+- Material-check and award-confidence AI calls now read the selected settings model at request time, so saving the configuration affects subsequent jobs without restarting the API.
+
+### 2026-06-25 Lenient Material Evidence Review
+
+- Adjusted material-check AI prompting to use a lenient evidence-existence standard: applicant identity, core award/project name, and year/academic year are the primary matching signals.
+- Minor differences no longer create business mismatches: exact day missing, month/year or academic-year-only dates, abbreviations, Chinese/English translations, same entity under different names, near-synonym roles, slight typos, screenshots, photos, or informal proof format.
+- Backend aggregation now filters minor `issues` from model output. Minor issues are preserved in `详细情况`, but `核对情况备注` can remain `无问题` when core evidence matches.
+- True hard conflicts still produce `部分材料不匹配`: different applicant, completely different award/project, clear year/academic-year conflict, clear award level/ranking conflict, or proof pointing to a different experience.

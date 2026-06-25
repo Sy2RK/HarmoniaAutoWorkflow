@@ -89,8 +89,9 @@ Main states:
      - `学号`
      - `状态`
      - `核对情况备注`
-     - `错误`
-   - Preserve line breaks in `核对情况备注`.
+     - `详细情况`
+   - Preserve line breaks in `核对情况备注` and `详细情况`.
+   - Do not show row-level `error` in the material-check table; it is reserved for technical failures.
 5. **Download**
    - Button: `下载处理版 Excel`
    - Enabled only when job status is `completed`.
@@ -145,6 +146,7 @@ export type ScholarshipCheckRow = {
   studentId: string;
   status: "pending" | "processing" | "completed" | "failed" | "cancelled";
   remark: string | null;
+  detail: string | null;
   error: string | null;
 };
 ```
@@ -155,7 +157,7 @@ Expected methods:
 - `scholarshipCheckJobs(limit?: number)`
 - `scholarshipCheckJob(id: string)`
 - `downloadScholarshipCheckResult(id: string)`
-- `updateScholarshipCheckRow(jobId: string, rowNumber: number, remark: string)`
+- `updateScholarshipCheckRow(jobId: string, rowNumber: number, remark: string, detail: string)`
 - `deleteScholarshipCheckJob(id: string)`
 - `pauseScholarshipCheckJob(id: string)`
 - `resumeScholarshipCheckJob(id: string)`
@@ -218,15 +220,21 @@ The initial screen for the new tab should be the actual upload tool, not a landi
 3. Frontend uploads the workbook to the backend.
 4. Frontend shows job state and row preview returned by backend.
 5. Frontend enables `下载置信度 Excel` when backend job is complete.
+6. Frontend lists the latest five retained confidence records and lets the operator select, download, pause/resume/cancel, or delete records through backend APIs.
 
-No folder upload, evidence file count, pause/resume/cancel controls, or row remark editing is required for this module unless backend later exposes those capabilities.
+No folder upload, evidence file count, row remark editing, frontend workbook parsing, or frontend confidence scoring is required for this module.
 
 ### API Client Contract
 
 After backend implements the contract, add client methods matching the backend API:
 
 - `createAwardConfidenceJob(workbook: File)`
+- `awardConfidenceJobs(limit?: number)`
 - `awardConfidenceJob(id: string)`
+- `pauseAwardConfidenceJob(id: string)`
+- `resumeAwardConfidenceJob(id: string)`
+- `cancelAwardConfidenceJob(id: string)`
+- `deleteAwardConfidenceJob(id: string)`
 - `downloadAwardConfidenceResult(id: string)`
 
 Expected upload behavior:
@@ -239,7 +247,7 @@ Expected upload behavior:
 Expected response shapes:
 
 ```ts
-export type AwardConfidenceJobStatus = "queued" | "processing" | "completed" | "failed";
+export type AwardConfidenceJobStatus = "queued" | "processing" | "paused" | "completed" | "failed" | "cancelled";
 
 export type AwardConfidenceJob = {
   id: string;
@@ -259,7 +267,7 @@ export type AwardConfidenceRow = {
   secondAward: string | null;
   firstAwardConfidence: number | null;
   secondAwardConfidence: number | null;
-  status: "pending" | "processing" | "completed" | "failed";
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
   error: string | null;
 };
 ```
@@ -341,7 +349,9 @@ Required behavior:
 Manual edit requirements:
 
 - Add an edit affordance for each applicant row's `核对情况备注`.
-- Editing should preserve the four-line remark structure.
+- Editing should preserve the four-line remark/detail structure.
+- `核对情况备注` editing must use controls constrained to `未填写`, `无证明材料`, `部分材料缺失`, `部分材料不匹配`, and `无问题`.
+- `详细情况` editing should provide one reason input per category.
 - Save through `PATCH /scholarship-check/jobs/:id/rows/:rowNumber`.
 - After save, update the row preview and make the next download use the edited workbook.
 - Show clear feedback such as `备注已保存`.
@@ -354,6 +364,16 @@ Pause/resume/cancel controls:
 - `终止` must require confirmation because the job may have already spent model calls.
 - Continue polling while a selected job is `queued` or `processing`.
 - Stop polling selected jobs when they become `paused`, `completed`, `failed`, or `cancelled`, but allow manual refresh.
+
+Award-confidence recent records:
+
+- Load `GET /award-confidence/jobs?limit=5` when `/scholarship-check` mounts or refreshes.
+- Show a `最近置信度记录` list in the `奖项置信度` tab with created time, updated time, status, processed/total count, and short error text.
+- Selecting a record loads `GET /award-confidence/jobs/:id` and displays its confidence preview.
+- Use a separate `localStorage` key for the last selected award-confidence job; backend recent records remain the source of truth.
+- Put the delete button on each record row, not in the current progress controls.
+- Deletion must call `DELETE /award-confidence/jobs/:id`, remove the row from the list, clear the current preview if that record was selected, and reload recent records.
+- Keep `暂停`, `继续`, and `终止` in the selected job progress panel, following the same status and confirmation rules as material checks.
 
 Route-switch/background behavior:
 
@@ -373,7 +393,7 @@ The backend remark uses four lines:
 奖项：...
 ```
 
-Render the cell with `white-space: pre-wrap` so the line structure is visible. Do not collapse it into one line.
+Render remark/detail cells with `white-space: pre-wrap` so the line structure is visible. Do not collapse them into one line.
 
 ## Acceptance Criteria
 
@@ -382,6 +402,7 @@ Render the cell with `white-space: pre-wrap` so the line structure is visible. D
 - The user can select one `.xlsx` workbook and a proof-material folder.
 - The frontend sends both files and relative paths to the backend.
 - The page shows job progress and per-applicant rows.
+- The material-check preview shows `详细情况` instead of an `错误` column.
 - The download button appears/enables only after completion.
 - The downloaded file is the backend-generated `.xlsx`.
 - The page lists the five latest persisted check records after login.
@@ -390,6 +411,7 @@ Render the cell with `white-space: pre-wrap` so the line structure is visible. D
 - Leaving `/scholarship-check` for another page does not pause or cancel the backend job.
 - Returning to `/scholarship-check` rediscovers active/recent jobs and resumes polling active jobs.
 - No API key is present in frontend code, UI state, network payloads, or logs.
+- The configuration page exposes a manual model selector for scholarship material checks and award-confidence jobs, limited to `qwen3-5-397b-a17b` and `gemma-4-31B`.
 
 ## Implementation Progress
 
@@ -406,3 +428,41 @@ Render the cell with `white-space: pre-wrap` so the line structure is visible. D
 - Added pause/resume/cancel controls with cancellation confirmation, delete confirmation, terminal-record download attempts, and row-level remark editing through `PATCH /scholarship-check/jobs/:id/rows/:rowNumber`.
 - Updated frontend API client methods and page CSS for the new lifecycle, history, and editing interactions.
 - Validation note: direct `pnpm`/`node` frontend validation could not run because this shell does not expose Node.js, Corepack, or pnpm on PATH.
+
+### 2026-06-17 Award Confidence Frontend Implementation
+
+- Added the workbook-only award-confidence workflow as the `奖项置信度` tab inside `/scholarship-check`; the existing proof-material checker remains under `材料核对`.
+- Added frontend API client methods for `POST /award-confidence/jobs`, `GET /award-confidence/jobs/:id`, and `GET /award-confidence/jobs/:id/result`.
+- The new workflow accepts one `.xlsx`, rejects non-xlsx files before upload, polls queued/processing jobs, displays progress and row preview, and downloads the backend-generated result workbook when complete.
+- The preview table renders sheet, name, first/second awards, first/second confidence values, status, and errors. Confidence values render to one decimal place with restrained confidence bands.
+- No frontend scoring formula, workbook parsing, backend route, or backend storage logic was added.
+- Validation note: direct `pnpm --filter @harmonia/web typecheck` could not run because this shell does not expose Node.js or pnpm on PATH.
+- TypeScript diagnostics through the Node REPL reported only environment baseline issues for missing `vite/client` and `import.meta.env`; no diagnostics were reported in `ScholarshipCheckPage.tsx`.
+
+### 2026-06-17 Award Confidence Lifecycle Controls
+
+- Added frontend API client methods for award-confidence `pause`, `resume`, `cancel`, and `delete` routes after the backend contract was implemented.
+- Added `暂停`, `继续`, `终止`, and `删除记录` controls to the `奖项置信度` tab, using the same confirmation pattern as the material-check workflow for termination/deletion.
+- Updated award-confidence status labels and badges for `已暂停` and `已终止`; cancelled jobs can download the backend-generated partial confidence workbook.
+
+### 2026-06-17 Award Confidence History Records
+
+- Added frontend API client support for `GET /award-confidence/jobs?limit=5`.
+- Added a `最近置信度记录` panel in the `奖项置信度` tab, mirroring the material-check recent-record interaction: created time, updated time, status, processed/total count, short errors, selected-record highlighting, and manual refresh.
+- Added automatic recovery on return to `/scholarship-check`: load award-confidence recent records, select the newest active or paused record when available, then fall back to the last selected award-confidence record.
+- Moved award-confidence deletion to each recent-record row and removed the delete button from the current progress panel.
+- Deleting a selected confidence record clears the preview and reloads the backend recent list; deleting a non-selected record leaves the current preview intact.
+- Validation passed: `pnpm --filter @harmonia/web typecheck`.
+
+### 2026-06-25 Structured Material Check Output
+
+- Replaced the material-check preview `错误` column with `详细情况`; row-level `error` remains hidden in the table.
+- Updated row editing to use fixed-status selectors for `核对情况备注` and per-category reason inputs for `详细情况`.
+- Updated the API client row-edit call to send both `remark` and `detail`.
+- Kept line-preserving display for both structured fields and retained compatibility with old rows whose `detail` is missing.
+
+### 2026-06-25 Model Selection Configuration
+
+- Added an `AI 模型` panel to the configuration page.
+- The model selector edits persisted `settings.scholarshipCheckAiModel` and only offers `qwen3-5-397b-a17b` and `gemma-4-31B`.
+- The selected model applies to subsequent material-check and award-confidence backend calls; no API key is exposed in the frontend.

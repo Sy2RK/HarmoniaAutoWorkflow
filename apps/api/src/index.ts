@@ -30,6 +30,7 @@ const textApiKey = env.OPENAI_TEXT_API_KEY || env.OPENAI_API_KEY;
 const textBaseUrl = env.OPENAI_TEXT_BASE_URL || env.OPENAI_BASE_URL;
 const visionApiKey = env.OPENAI_VISION_API_KEY || env.OPENAI_API_KEY;
 const visionBaseUrl = env.OPENAI_VISION_BASE_URL || env.OPENAI_BASE_URL;
+const selectedScholarshipAiModel = async () => (await repo.getSettings()).scholarshipCheckAiModel || env.SCHOLARSHIP_CHECK_AI_MODEL;
 const ai =
   env.AI_ENABLED && textApiKey && visionApiKey
     ? new OpenAiCompatibleClient({
@@ -50,22 +51,38 @@ const scholarshipAi = env.SCHOLARSHIP_CHECK_AI_API_KEY
       text: {
         apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
         baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
-        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL,
+        modelSelector: selectedScholarshipAiModel
       },
       vision: {
         apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
         baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
-        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL,
+        modelSelector: selectedScholarshipAiModel
       },
       scholarship: {
         apiKey: env.SCHOLARSHIP_CHECK_AI_API_KEY,
         baseUrl: env.SCHOLARSHIP_CHECK_AI_BASE_URL,
-        model: env.SCHOLARSHIP_CHECK_AI_MODEL
+        model: env.SCHOLARSHIP_CHECK_AI_MODEL,
+        modelSelector: selectedScholarshipAiModel
       }
     })
   : ai;
+const awardConfidenceAi = scholarshipAi;
 
-const app = await buildApp({ env, repo, ai, scholarshipAi, mailer, graph, attachmentRoot: env.ATTACHMENT_STORAGE_DIR });
+const collegeKnowledgeAi = scholarshipAi;
+
+const app = await buildApp({
+  env,
+  repo,
+  ai,
+  scholarshipAi,
+  awardConfidenceAi,
+  collegeKnowledgeAi,
+  mailer,
+  graph,
+  attachmentRoot: env.ATTACHMENT_STORAGE_DIR
+});
 
 startSyncWorker({ repo, graph, ai, mailer, attachmentRoot: env.ATTACHMENT_STORAGE_DIR }, env.GRAPH_SYNC_INTERVAL_SECONDS);
 

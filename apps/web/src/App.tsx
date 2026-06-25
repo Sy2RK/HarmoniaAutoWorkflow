@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Layout } from "./components/Layout.js";
 import { Loading } from "./components/Loading.js";
 import { api } from "./api/client.js";
+import { CollegeKnowledgePage } from "./pages/CollegeKnowledgePage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { DraftReviewPage } from "./pages/DraftReviewPage.js";
 import { ForwardRecordsPage } from "./pages/ForwardRecordsPage.js";
@@ -18,6 +19,7 @@ const keptPages = [
   { path: "/drafts", element: <DraftReviewPage /> },
   { path: "/forward-records", element: <ForwardRecordsPage /> },
   { path: "/scholarship-check", element: <ScholarshipCheckPage /> },
+  { path: "/college-knowledge", element: <CollegeKnowledgePage /> },
   { path: "/settings", element: <SettingsPage /> }
 ] as const;
 

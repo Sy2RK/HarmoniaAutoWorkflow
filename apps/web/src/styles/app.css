@@ -332,6 +332,122 @@ textarea {
   margin-bottom: 0;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(20, 32, 34, 0.42);
+}
+
+.formula-dialog {
+  width: min(920px, 100%);
+  max-height: min(760px, calc(100vh - 44px));
+  overflow: auto;
+  padding: 16px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.formula-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.formula-content {
+  display: grid;
+  gap: 12px;
+}
+
+.formula-content p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.formula-box {
+  padding: 12px;
+  overflow-x: auto;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.formula-box code {
+  white-space: nowrap;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+}
+
+.formula-table {
+  min-width: 820px;
+}
+
+.formula-table th,
+.formula-table td {
+  font-size: 12px;
+}
+
+.formula-table td:not(:first-child) {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.formula-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formula-bands span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--muted);
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.formula-bands strong {
+  color: var(--ink);
+}
+
+.segmented-tabs {
+  margin: 0 0 16px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.segmented-tabs button {
+  min-height: 34px;
+  padding: 7px 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.segmented-tabs button.active {
+  color: #fff;
+  background: var(--jade);
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -577,6 +693,10 @@ td {
   gap: 12px;
 }
 
+.upload-grid.single {
+  grid-template-columns: minmax(220px, 420px);
+}
+
 .file-field input {
   min-height: 42px;
   padding: 8px;
@@ -606,6 +726,22 @@ td {
   font-size: 12px;
 }
 
+.compact-detail-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px 12px;
+}
+
+.compact-detail-list dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.compact-detail-list dd {
+  margin: 0;
+}
+
 .folder-breakdown {
   margin: 0;
   padding: 0;
@@ -627,6 +763,245 @@ td {
 
 .folder-breakdown strong {
   color: var(--jade-dark);
+}
+
+.college-chat-panel {
+  max-width: 1040px;
+}
+
+.chat-messages {
+  min-height: 360px;
+  max-height: calc(100vh - 350px);
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.chat-message {
+  display: flex;
+}
+
+.chat-message.user {
+  justify-content: flex-end;
+}
+
+.chat-message.assistant {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  width: min(720px, 100%);
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(20, 41, 40, 0.04);
+}
+
+.chat-message.user .chat-bubble {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.chat-bubble p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.chat-answer {
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
+.chat-file-tags {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-file-tags.editable {
+  margin-top: 0;
+}
+
+.chat-file-tags span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chat-file-tags button {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--red);
+  background: transparent;
+  border: 0;
+}
+
+.chat-warning {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.source-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.source-card {
+  padding: 10px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.source-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.source-card-heading svg {
+  color: var(--jade);
+}
+
+.source-card-heading span {
+  color: var(--muted);
+}
+
+.source-title {
+  margin-top: 6px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.source-card p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-composer {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.chat-composer textarea {
+  min-height: 96px;
+  line-height: 1.55;
+}
+
+.chat-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.file-action.icon-text {
+  margin: 0;
+  display: inline-flex;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.file-action input {
+  display: none;
+}
+
+.college-document-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 16px;
+}
+
+.college-upload-note {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.college-upload-note svg {
+  flex: 0 0 auto;
+  color: var(--jade);
+}
+
+.college-document-table {
+  min-width: 1040px;
+}
+
+.document-name-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.document-name-cell span,
+td .muted-row {
+  display: block;
+}
+
+.table-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.college-doc-ready {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.college-doc-processing,
+.college-doc-queued {
+  color: var(--blue);
+  background: #edf4ff;
+  border-color: #bad0ee;
+}
+
+.college-doc-partial {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.college-doc-failed,
+.college-doc-unsupported {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #e8b4af;
 }
 
 .recent-jobs {
@@ -721,6 +1096,19 @@ td {
   background: var(--amber);
 }
 
+.award-progress-completed span {
+  background: var(--jade);
+}
+
+.award-progress-failed span {
+  background: var(--red);
+}
+
+.award-progress-processing span,
+.award-progress-queued span {
+  background: linear-gradient(90deg, var(--jade), var(--blue));
+}
+
 .scholarship-progress-processing span,
 .scholarship-progress-queued span {
   background: linear-gradient(90deg, var(--jade), var(--blue));
@@ -737,7 +1125,11 @@ td {
 }
 
 .scholarship-table {
-  min-width: 960px;
+  min-width: 1120px;
+}
+
+.award-confidence-table {
+  min-width: 1080px;
 }
 
 .remark-cell {
@@ -767,6 +1159,45 @@ td {
 .remark-editor textarea {
   min-height: 126px;
   line-height: 1.55;
+}
+
+.remark-status-editor,
+.detail-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.remark-status-editor label,
+.detail-editor label {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.remark-status-editor span,
+.detail-editor span {
+  padding-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.remark-status-editor select {
+  min-height: 34px;
+}
+
+.detail-editor textarea {
+  min-height: 58px;
+  line-height: 1.5;
+}
+
+.detail-display {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }
 
 .scholarship-job-failed,
@@ -805,6 +1236,81 @@ td {
   border-color: #efcf95;
 }
 
+.award-job-failed,
+.award-row-failed {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #e8b4af;
+}
+
+.award-job-completed,
+.award-row-completed {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.award-job-processing,
+.award-row-processing {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.award-job-queued,
+.award-job-paused,
+.award-row-pending {
+  color: var(--blue);
+  background: #edf4ff;
+  border-color: #bad0ee;
+}
+
+.award-job-cancelled,
+.award-row-cancelled {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.confidence-score {
+  display: inline-flex;
+  min-width: 48px;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font-weight: 800;
+}
+
+.confidence-empty {
+  color: var(--muted);
+  background: #f3f6f5;
+}
+
+.confidence-high {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.confidence-medium-high {
+  color: var(--blue);
+  background: #edf4ff;
+  border-color: #bad0ee;
+}
+
+.confidence-uncertain {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.confidence-low {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #e8b4af;
+}
+
 @media (max-width: 1080px) {
   .shell {
     grid-template-columns: 1fr;
@@ -821,7 +1327,9 @@ td {
   .split-panels,
   .settings-grid,
   .scholarship-grid,
+  .college-document-grid,
   .upload-grid,
+  .upload-grid.single,
   .filter-bar {
     grid-template-columns: 1fr;
   }
@@ -848,5 +1356,19 @@ td {
 
   .toggle-list {
     grid-template-columns: 1fr;
+  }
+
+  .chat-messages {
+    max-height: none;
+  }
+
+  .chat-composer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chat-composer-actions .primary-action,
+  .chat-composer-actions .file-action {
+    width: 100%;
   }
 }

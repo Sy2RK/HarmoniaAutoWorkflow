@@ -8,6 +8,7 @@ import {
   draftStatuses,
   mailCategories,
   processingStatuses,
+  scholarshipAiModels,
   type AppSettings,
   type BusinessOwnerConfig,
   type DraftStatus,
@@ -23,13 +24,19 @@ import type { GraphMailClient } from "./graph/client.js";
 import type { OutboundMailer } from "./mail/outbound.js";
 import { syncMailbox } from "./worker/sync.js";
 import { registerScholarshipCheckRoutes } from "./scholarship-check/routes.js";
+import { registerAwardConfidenceRoutes } from "./award-confidence/routes.js";
+import { registerCollegeKnowledgeRoutes } from "./college-knowledge/routes.js";
 
 export type BuildAppOptions = {
   env: Env;
   repo: AppRepository;
   ai: AiClient;
   scholarshipAi?: AiClient;
+  awardConfidenceAi?: AiClient;
+  collegeKnowledgeAi?: AiClient;
   scholarshipCheckStorageRoot?: string;
+  awardConfidenceStorageRoot?: string;
+  collegeKnowledgeStorageRoot?: string;
   mailer: OutboundMailer;
   graph: GraphMailClient;
   attachmentRoot: string;
@@ -61,6 +68,7 @@ const settingsSchema = z.object({
   mailboxAddress: z.string(),
   ownerEmails: z.record(z.string(), z.string()).transform((value) => value as BusinessOwnerConfig),
   defaultManualEmail: z.string(),
+  scholarshipCheckAiModel: z.enum(scholarshipAiModels),
   roomAutoApproveEnabled: z.boolean(),
   knowledgeBaseEnabled: z.boolean(),
   mailSyncEnabled: z.boolean(),
@@ -380,6 +388,17 @@ export async function buildApp(options: BuildAppOptions) {
     ai: options.scholarshipAi ?? options.ai,
     env: options.env,
     ...(options.scholarshipCheckStorageRoot === undefined ? {} : { storageRoot: options.scholarshipCheckStorageRoot })
+  });
+  await registerAwardConfidenceRoutes(app, {
+    ai: options.awardConfidenceAi ?? options.scholarshipAi ?? options.ai,
+    env: options.env,
+    ...(options.awardConfidenceStorageRoot === undefined ? {} : { storageRoot: options.awardConfidenceStorageRoot })
+  });
+  await registerCollegeKnowledgeRoutes(app, {
+    repo: options.repo,
+    ai: options.collegeKnowledgeAi ?? options.scholarshipAi ?? options.ai,
+    env: options.env,
+    ...(options.collegeKnowledgeStorageRoot === undefined ? {} : { storageRoot: options.collegeKnowledgeStorageRoot })
   });
 
   return app;

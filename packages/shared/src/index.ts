@@ -122,10 +122,15 @@ export type DashboardSummary = {
 
 export type BusinessOwnerConfig = Partial<Record<MailCategory, string>>;
 
+export const scholarshipAiModels = ["qwen3-5-397b-a17b", "gemma-4-31B"] as const;
+
+export type ScholarshipAiModel = (typeof scholarshipAiModels)[number];
+
 export type AppSettings = {
   mailboxAddress: string;
   ownerEmails: BusinessOwnerConfig;
   defaultManualEmail: string;
+  scholarshipCheckAiModel: ScholarshipAiModel;
   roomAutoApproveEnabled: boolean;
   knowledgeBaseEnabled: boolean;
   mailSyncEnabled: boolean;
@@ -144,6 +149,47 @@ export type KnowledgeEntry = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export const collegeKnowledgeDocumentStatuses = ["queued", "processing", "ready", "partial", "failed", "unsupported"] as const;
+
+export type CollegeKnowledgeDocumentStatus = (typeof collegeKnowledgeDocumentStatuses)[number];
+
+export type CollegeKnowledgeDocument = {
+  id: string;
+  fileName: string;
+  originalName: string;
+  relativePath: string | null;
+  contentType: string | null;
+  size: number;
+  sha256: string;
+  status: CollegeKnowledgeDocumentStatus;
+  error: string | null;
+  warnings: string[];
+  storagePath: string;
+  extractedMarkdownPath: string;
+  metadataPath: string;
+  chunkCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CollegeKnowledgeSource = {
+  id: string;
+  documentId: string;
+  documentName: string;
+  relativePath: string | null;
+  locator: string;
+  title: string | null;
+  snippet: string;
+  score?: number;
+};
+
+export type CollegeKnowledgeChatResponse = {
+  answer: string;
+  answerable: boolean;
+  sources: CollegeKnowledgeSource[];
+  warnings: string[];
 };
 
 export type ApiListResponse<T> = {
@@ -175,7 +221,38 @@ export type ScholarshipCheckRow = {
   studentId: string;
   status: ScholarshipCheckRowStatus;
   remark: string | null;
+  detail: string | null;
   error: string | null;
   editedAt?: string | null;
   editedBy?: string | null;
+};
+
+export const awardConfidenceJobStatuses = ["queued", "processing", "paused", "completed", "failed", "cancelled"] as const;
+
+export type AwardConfidenceJobStatus = (typeof awardConfidenceJobStatuses)[number];
+
+export const awardConfidenceRowStatuses = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+
+export type AwardConfidenceRowStatus = (typeof awardConfidenceRowStatuses)[number];
+
+export type AwardConfidenceJob = {
+  id: string;
+  status: AwardConfidenceJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  totalRows: number;
+  processedRows: number;
+  error: string | null;
+};
+
+export type AwardConfidenceRow = {
+  sheetName: string;
+  rowNumber: number;
+  name: string;
+  firstAward: string | null;
+  secondAward: string | null;
+  firstAwardConfidence: number | null;
+  secondAwardConfidence: number | null;
+  status: AwardConfidenceRowStatus;
+  error: string | null;
 };

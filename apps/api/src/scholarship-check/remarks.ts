@@ -5,15 +5,33 @@ export const scholarshipRemarkTexts = {
   noProblem: "无问题",
   notFilled: "未填写",
   noEvidence: "无证明材料",
-  partialMissing: "部分条目无证明材料",
-  modelUnavailable: "模型未配置或未返回结果，需人工复核",
-  modelFailed: "模型调用失败，需人工复核",
-  unreadableEvidence: "证明材料无法渲染为图片，需人工复核"
+  partialMissing: "部分材料缺失",
+  partialMismatch: "部分材料不匹配"
 } as const;
+
+export const scholarshipRemarkStatusValues = [
+  scholarshipRemarkTexts.notFilled,
+  scholarshipRemarkTexts.noEvidence,
+  scholarshipRemarkTexts.partialMissing,
+  scholarshipRemarkTexts.partialMismatch,
+  scholarshipRemarkTexts.noProblem
+] as const;
+
+export type ScholarshipRemarkStatus = (typeof scholarshipRemarkStatusValues)[number];
 
 export type CategoryRemarkInput = {
   declaredText: string;
   evidence: EvidenceRecord[];
+};
+
+export type CategoryCheckResult = {
+  status: ScholarshipRemarkStatus;
+  detail: string;
+};
+
+export type ScholarshipCheckResult = {
+  remark: string;
+  detail: string;
 };
 
 export function splitDeclaredItems(value: string): string[] {
@@ -31,23 +49,56 @@ export function splitDeclaredItems(value: string): string[] {
     .filter(Boolean);
 }
 
-export function categoryRemark(input: CategoryRemarkInput): string {
+export function categoryResult(input: CategoryRemarkInput): CategoryCheckResult {
   const text = input.declaredText.trim();
-  if (!text || /^无$|^无[。.]?$|^暂无$/.test(text)) return scholarshipRemarkTexts.notFilled;
+  if (!text || /^无$|^无[。.]?$|^暂无$/.test(text)) {
+    return { status: scholarshipRemarkTexts.notFilled, detail: "申请表该栏为空或仅填写“无/暂无”。" };
+  }
 
   const items = splitDeclaredItems(text);
-  if (input.evidence.length === 0) return scholarshipRemarkTexts.noEvidence;
+  if (input.evidence.length === 0) {
+    return { status: scholarshipRemarkTexts.noEvidence, detail: "该分类有申报内容，但未找到对应证明材料。" };
+  }
 
   const proofExpected = items.length ? items.filter((item) => !/无证明/.test(item)) : [text];
-  if (proofExpected.length === 0) return input.evidence.length > 0 ? scholarshipRemarkTexts.noProblem : scholarshipRemarkTexts.noEvidence;
-  if (input.evidence.length < proofExpected.length) return scholarshipRemarkTexts.partialMissing;
-  return scholarshipRemarkTexts.noProblem;
+  if (proofExpected.length === 0) {
+    return { status: scholarshipRemarkTexts.noProblem, detail: "申报条目标注为无证明要求，未发现需补充证明的内容。" };
+  }
+  if (input.evidence.length < proofExpected.length) {
+    return {
+      status: scholarshipRemarkTexts.partialMissing,
+      detail: `申报 ${proofExpected.length} 项，找到 ${input.evidence.length} 个证明文件，仍有部分申报项缺少证明。`
+    };
+  }
+  return { status: scholarshipRemarkTexts.noProblem, detail: "申报内容有对应证明材料，未发现明显问题。" };
+}
+
+export function categoryRemark(input: CategoryRemarkInput): string {
+  return categoryResult(input).status;
+}
+
+export function buildCheckResult(categories: Record<ScholarshipCheckCategory, CategoryRemarkInput>): ScholarshipCheckResult {
+  const results = Object.fromEntries(
+    scholarshipCheckCategories.map((category) => [category, categoryResult(categories[category])])
+  ) as Record<ScholarshipCheckCategory, CategoryCheckResult>;
+  return formatCheckResult(results);
 }
 
 export function buildRemark(categories: Record<ScholarshipCheckCategory, CategoryRemarkInput>): string {
-  return scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：${categoryRemark(categories[category])}`).join("\n");
+  return buildCheckResult(categories).remark;
+}
+
+export function formatCheckResult(results: Record<ScholarshipCheckCategory, CategoryCheckResult>): ScholarshipCheckResult {
+  return {
+    remark: scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：${results[category].status}`).join("\n"),
+    detail: scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：${results[category].detail}`).join("\n")
+  };
 }
 
 export function emptyRemark(): string {
   return scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：${scholarshipRemarkTexts.notFilled}`).join("\n");
+}
+
+export function emptyDetail(): string {
+  return scholarshipCheckCategories.map((category) => `${categoryLabels[category]}：任务尚未完成该项核对，需人工复核。`).join("\n");
 }

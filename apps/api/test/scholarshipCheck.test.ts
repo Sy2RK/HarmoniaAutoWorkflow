@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
@@ -8,10 +9,10 @@ import { hashPassword } from "../src/auth/session.js";
 import { NoopAiClient } from "../src/ai/client.js";
 import type { AiClient, ScholarshipEvidenceVerificationInput } from "../src/ai/client.js";
 import { matchEvidenceForApplicant, parseEvidencePath } from "../src/scholarship-check/evidence.js";
-import { buildRemark } from "../src/scholarship-check/remarks.js";
-import { buildAiVerifiedRemark, evidenceToImages } from "../src/scholarship-check/verifier.js";
+import { buildCheckResult, buildRemark } from "../src/scholarship-check/remarks.js";
+import { buildAiVerifiedCheckResult, buildAiVerifiedRemark, evidenceToImages } from "../src/scholarship-check/verifier.js";
 import { parseApplicants, outputColumns, writeProcessedWorkbook } from "../src/scholarship-check/workbook.js";
-import { scholarshipCheckStorageRoot } from "../src/scholarship-check/service.js";
+import { ScholarshipCheckService, scholarshipCheckStorageRoot } from "../src/scholarship-check/service.js";
 import { InMemoryRepository } from "../src/db/memory.js";
 import type { Env } from "../src/config/env.js";
 import type { GraphMailClient } from "../src/graph/client.js";
@@ -37,16 +38,16 @@ const env: Env = {
   GRAPH_SYNC_INTERVAL_SECONDS: 120,
   MAIL_SENDING_ENABLED: false,
   OPENAI_API_KEY: "",
-  OPENAI_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_BASE_URL: "https://ai-api.cuhk.edu.cn/v1",
   OPENAI_TEXT_API_KEY: "",
-  OPENAI_TEXT_BASE_URL: "https://api.deepseek.com",
-  OPENAI_TEXT_MODEL: "gpt-4.1-mini",
+  OPENAI_TEXT_BASE_URL: "https://ai-api.cuhk.edu.cn/v1",
+  OPENAI_TEXT_MODEL: "qwen3-5-397b-a17b",
   OPENAI_VISION_API_KEY: "",
-  OPENAI_VISION_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  OPENAI_VISION_MODEL: "gpt-4.1-mini",
+  OPENAI_VISION_BASE_URL: "https://ai-api.cuhk.edu.cn/v1",
+  OPENAI_VISION_MODEL: "qwen3-5-397b-a17b",
   SCHOLARSHIP_CHECK_AI_API_KEY: "",
-  SCHOLARSHIP_CHECK_AI_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  SCHOLARSHIP_CHECK_AI_MODEL: "qwen3.7-plus",
+  SCHOLARSHIP_CHECK_AI_BASE_URL: "https://ai-api.cuhk.edu.cn/v1",
+  SCHOLARSHIP_CHECK_AI_MODEL: "qwen3-5-397b-a17b",
   SCHOLARSHIP_CHECK_AI_IMAGES_PER_REQUEST: 4,
   SCHOLARSHIP_CHECK_AI_PDF_IMAGE_WIDTH: 1600,
   AI_ENABLED: false,
@@ -86,12 +87,25 @@ describe("scholarship check core", () => {
       expect(applicants).toHaveLength(1);
       expect(applicants[0]).toMatchObject({ name: "张三", studentId: "2026001" });
 
-      writeProcessedWorkbook(applicants.slice(0, 1), new Map([[applicants[0]!.rowNumber, "书院贡献：无问题\n学生组织：无问题\n社会服务与实践：无问题\n奖项：无问题"]]), outputPath);
+      writeProcessedWorkbook(
+        applicants.slice(0, 1),
+        new Map([
+          [
+            applicants[0]!.rowNumber,
+            {
+              remark: "书院贡献：无问题\n学生组织：无问题\n社会服务与实践：无问题\n奖项：无问题",
+              detail: "书院贡献：材料一致。\n学生组织：材料一致。\n社会服务与实践：材料一致。\n奖项：材料一致。"
+            }
+          ]
+        ]),
+        outputPath
+      );
       const workbook = XLSX.readFile(outputPath);
       const rows = XLSX.utils.sheet_to_json<Array<string | number>>(workbook.Sheets[workbook.SheetNames[0]!]!, { header: 1, defval: "" });
       expect(rows[0]).toEqual([...outputColumns]);
       expect(rows[1]?.[12]).toBe("无违纪记录");
       expect(String(rows[1]?.[14])).toContain("书院贡献：无问题");
+      expect(String(rows[1]?.[15])).toContain("书院贡献：材料一致。");
     } finally {
       await rm(sourcePath, { force: true });
       await rm(outputPath, { force: true });
@@ -112,7 +126,26 @@ describe("scholarship check core", () => {
       }
     });
 
-    expect(remark.split("\n")).toEqual(["书院贡献：未填写", "学生组织：无证明材料", "社会服务与实践：部分条目无证明材料", "奖项：无问题"]);
+    expect(remark.split("\n")).toEqual(["书院贡献：未填写", "学生组织：无证明材料", "社会服务与实践：部分材料缺失", "奖项：无问题"]);
+  });
+
+  it("formats structured remarks and details as four ordered lines", () => {
+    const result = buildCheckResult({
+      collegeContribution: { declaredText: "", evidence: [] },
+      studentOrganization: { declaredText: "1、2024-01-01; 学生会; 部长; 有证明", evidence: [] },
+      socialPractice: {
+        declaredText: "1、2024-01-01; 支教; 志愿者; 有证明\n\n2、2024-02-01; 实习; 实习生; 有证明",
+        evidence: [parseEvidencePath("root/张三附件(证明材料)/社会服务与实践/支教.pdf", "/tmp/支教.pdf", "application/pdf")]
+      },
+      award: {
+        declaredText: "1、2024-01-01; 大学; 奖项; 有证明",
+        evidence: [parseEvidencePath("root/张三附件(证明材料)/奖项/奖项.pdf", "/tmp/奖项.pdf", "application/pdf")]
+      }
+    });
+
+    expect(result.remark.split("\n")).toEqual(["书院贡献：未填写", "学生组织：无证明材料", "社会服务与实践：部分材料缺失", "奖项：无问题"]);
+    expect(result.detail.split("\n")).toHaveLength(4);
+    expect(result.detail).toContain("社会服务与实践：申报 2 项，找到 1 个证明文件");
   });
 
   it("matches Chinese and English applicant folders", () => {
@@ -207,6 +240,167 @@ describe("scholarship check core", () => {
       expect(ai.calls).toHaveLength(0);
     } finally {
       await rm(pngPath, { force: true });
+    }
+  });
+
+  it("maps AI mismatch and missing results to fixed remark statuses with details", async () => {
+    const pngPath = join(process.cwd(), "../../storage/scholarship-check-test-ai-map.png");
+    try {
+      await writeFile(pngPath, Buffer.from("png"));
+      const applicant = {
+        rowNumber: 2,
+        values: {},
+        name: "张三",
+        studentId: "2026001",
+        categories: {
+          collegeContribution: "",
+          studentOrganization: "",
+          socialPractice: "1、支教; 志愿者; 有证明\n2、实习; 实习生; 有证明",
+          award: "1、大学; 奖项; 有证明"
+        }
+      };
+      const result = await buildAiVerifiedCheckResult({
+        ai: new SequenceScholarshipAiClient([
+          { supported: true, confidence: 0.9, summary: "", issues: [], matchedItems: ["支教"], missingItems: ["实习"] },
+          { supported: false, confidence: 0.9, summary: "", issues: ["奖项名称与申报内容不一致"], matchedItems: [], missingItems: [] }
+        ]),
+        applicant,
+        evidenceByCategory: {
+          collegeContribution: [],
+          studentOrganization: [],
+          socialPractice: [parseEvidencePath("root/张三附件(证明材料)/社会服务与实践/a.png", pngPath, "image/png")],
+          award: [parseEvidencePath("root/张三附件(证明材料)/奖项/b.png", pngPath, "image/png")]
+        }
+      });
+
+      expect(result.remark.split("\n")).toEqual(["书院贡献：未填写", "学生组织：未填写", "社会服务与实践：部分材料缺失", "奖项：部分材料不匹配"]);
+      expect(result.detail).toContain("社会服务与实践：已匹配：支教；缺少：实习");
+      expect(result.detail).toContain("奖项：奖项名称与申报内容不一致");
+    } finally {
+      await rm(pngPath, { force: true });
+    }
+  });
+
+  it("treats minor naming and date differences as supported when core evidence matches", async () => {
+    const pngPath = join(process.cwd(), "../../storage/scholarship-check-test-ai-lenient.png");
+    try {
+      await writeFile(pngPath, Buffer.from("png"));
+      const applicant = {
+        rowNumber: 2,
+        values: {},
+        name: "张三",
+        studentId: "2026001",
+        categories: {
+          collegeContribution: "",
+          studentOrganization: "1、2023-2024; 祥波书院学生组织; 副部长; 有证明",
+          socialPractice: "1、2024; 笃行志远; 志愿者; 有证明",
+          award: "1、2023-2024; Academic Performance Scholarship Tier 3; 有证明"
+        }
+      };
+      const result = await buildAiVerifiedCheckResult({
+        ai: new SequenceScholarshipAiClient([
+          {
+            supported: true,
+            confidence: 0.86,
+            summary: "",
+            issues: ["角色名称显示为 Vice Chair，与申报副部长属于近义表述差异。"],
+            matchedItems: ["祥波书院学生组织"],
+            missingItems: []
+          },
+          {
+            supported: true,
+            confidence: 0.9,
+            summary: "",
+            issues: ["申报项目名称为笃行志远，证书显示为笃行致远，存在一字之差，疑似笔误。"],
+            matchedItems: ["笃行志远"],
+            missingItems: []
+          },
+          {
+            supported: true,
+            confidence: 0.92,
+            summary: "",
+            issues: ["证明材料未显示具体落款日期，但奖项名称和学年基本一致。"],
+            matchedItems: ["Academic Performance Scholarship Tier 3"],
+            missingItems: []
+          }
+        ]),
+        applicant,
+        evidenceByCategory: {
+          collegeContribution: [],
+          studentOrganization: [parseEvidencePath("root/张三附件(证明材料)/学生组织/org.png", pngPath, "image/png")],
+          socialPractice: [parseEvidencePath("root/张三附件(证明材料)/社会服务与实践/service.png", pngPath, "image/png")],
+          award: [parseEvidencePath("root/张三附件(证明材料)/奖项/award.png", pngPath, "image/png")]
+        }
+      });
+
+      expect(result.remark.split("\n")).toEqual(["书院贡献：未填写", "学生组织：无问题", "社会服务与实践：无问题", "奖项：无问题"]);
+      expect(result.detail).toContain("核心信息匹配，轻微差异不影响通过");
+      expect(result.detail).toContain("一字之差");
+      expect(result.detail).toContain("具体落款日期");
+    } finally {
+      await rm(pngPath, { force: true });
+    }
+  });
+});
+
+describe("scholarship check service recovery", () => {
+  it("auto-resumes legacy restart-paused jobs after service restart", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "scholarship-check-restart-"));
+    const jobId = "restart-scholarship-check";
+    const rootDir = join(storageRoot, jobId);
+    const inputDir = join(rootDir, "input");
+    const workbookPath = join(inputDir, "workbook.xlsx");
+    const createdAt = new Date("2026-01-01T00:00:00.000Z").toISOString();
+    const restartPauseMessage = "\u4efb\u52a1\u56e0\u670d\u52a1\u91cd\u542f\u5df2\u6682\u505c\uff0c\u53ef\u70b9\u51fb\u7ee7\u7eed\u6062\u590d\u3002";
+
+    try {
+      await mkdir(inputDir, { recursive: true });
+      await writeFile(workbookPath, minimalWorkbook());
+      await writeFile(join(rootDir, "evidence.json"), JSON.stringify([]));
+      const rows = parseApplicants(workbookPath).map((applicant) => ({
+        rowNumber: applicant.rowNumber,
+        name: applicant.name,
+        studentId: applicant.studentId,
+        status: "processing",
+        remark: null,
+        detail: null,
+        error: null,
+        editedAt: null,
+        editedBy: null
+      }));
+      await writeFile(
+        join(rootDir, "job.json"),
+        JSON.stringify(
+          {
+            job: {
+              id: jobId,
+              status: "paused",
+              createdAt,
+              updatedAt: createdAt,
+              totalApplicants: rows.length,
+              processedApplicants: 0,
+              error: restartPauseMessage,
+              mode: "dry_run",
+              rootDir,
+              workbookPath,
+              resultPath: null
+            },
+            rows
+          },
+          null,
+          2
+        )
+      );
+      await writeFile(join(storageRoot, "index.json"), JSON.stringify({ ids: [jobId] }));
+
+      const service = new ScholarshipCheckService(storageRoot, new NoopAiClient());
+      const completed = await waitForScholarshipServiceJob(service, jobId, "completed");
+
+      expect(completed.job.status).toBe("completed");
+      expect(completed.job.error).toBeNull();
+      expect(completed.rows.every((row) => row.status === "completed")).toBe(true);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });
@@ -321,6 +515,7 @@ describe("scholarship check routes", () => {
       const completed = await waitForJob(app, cookie, jobId);
       expect(completed.job.status).toBe("completed");
       expect(completed.rows[0].remark.split("\n")).toHaveLength(4);
+      expect(completed.rows[0].detail.split("\n")).toHaveLength(4);
 
       const result = await app.inject({
         method: "GET",
@@ -459,22 +654,30 @@ describe("scholarship check routes", () => {
 
     try {
       const completed = await waitForJob(app, cookie, jobId);
-      const editedRemark = completed.rows[0].remark
-        .split("\n")
-        .map((line: string, index: number) => (index === 0 ? `${line}锛堜汉宸ヤ慨姝ｏ級` : line))
-        .join("\n");
+      const editedRemark = "书院贡献：部分材料缺失\n学生组织：无证明材料\n社会服务与实践：未填写\n奖项：无证明材料";
+      const editedDetail = "书院贡献：人工复核后确认仍缺少活动证明。\n学生组织：未找到学生组织证明。\n社会服务与实践：申请表该栏为空。\n奖项：未找到奖项证明。";
       const update = await app.inject({
         method: "PATCH",
         url: `/scholarship-check/jobs/${jobId}/rows/${completed.rows[0].rowNumber}`,
         headers: { cookie },
-        payload: { remark: editedRemark }
+        payload: { remark: editedRemark, detail: editedDetail }
       });
       expect(update.statusCode).toBe(200);
-      expect(update.json().row).toMatchObject({ remark: editedRemark, status: "completed" });
+      expect(update.json().row).toMatchObject({ remark: editedRemark, detail: editedDetail, status: "completed" });
       expect(update.json().row.editedAt).toBeTruthy();
 
       const detail = await app.inject({ method: "GET", url: `/scholarship-check/jobs/${jobId}`, headers: { cookie } });
       expect(detail.json().rows[0].remark).toBe(editedRemark);
+      expect(detail.json().rows[0].detail).toBe(editedDetail);
+
+      const result = await app.inject({ method: "GET", url: `/scholarship-check/jobs/${jobId}/result`, headers: { cookie } });
+      expect(result.statusCode).toBe(200);
+      const workbook = XLSX.read(result.rawPayload, { type: "buffer" });
+      const rows = XLSX.utils.sheet_to_json<Array<string | number>>(workbook.Sheets[workbook.SheetNames[0]!]!, { header: 1, defval: "" });
+      expect(rows[0]).toContain("核对情况备注");
+      expect(rows[0]).toContain("详细情况");
+      expect(String(rows[1]?.[14])).toBe(editedRemark);
+      expect(String(rows[1]?.[15])).toBe(editedDetail);
     } finally {
       await rm(join(testScholarshipStorageRoot, jobId), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       await app.close();
@@ -611,6 +814,28 @@ class FakeScholarshipAiClient extends NoopAiClient {
       matchedItems: ["已匹配"],
       missingItems: []
     };
+  }
+}
+
+class SequenceScholarshipAiClient extends NoopAiClient {
+  readonly calls: ScholarshipEvidenceVerificationInput[] = [];
+
+  constructor(
+    private readonly responses: Array<{
+      supported: boolean;
+      confidence: number;
+      summary: string;
+      issues: string[];
+      matchedItems: string[];
+      missingItems: string[];
+    }>
+  ) {
+    super();
+  }
+
+  async verifyScholarshipEvidence(input: ScholarshipEvidenceVerificationInput) {
+    this.calls.push(input);
+    return this.responses.shift() ?? null;
   }
 }
 
@@ -757,6 +982,16 @@ async function waitForStatus(app: Awaited<ReturnType<typeof buildApp>>, cookie: 
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Job did not reach ${status}`);
+}
+
+async function waitForScholarshipServiceJob(service: ScholarshipCheckService, jobId: string, status: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const payload = await service.getJob(jobId);
+    expect(payload).toBeTruthy();
+    if (payload?.job.status === status) return payload;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Scholarship check service job did not reach ${status}`);
 }
 
 async function expectJobDeleted(app: Awaited<ReturnType<typeof buildApp>>, cookie: string, jobId: string) {

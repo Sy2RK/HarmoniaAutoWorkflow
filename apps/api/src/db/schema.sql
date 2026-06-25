@@ -11,6 +11,7 @@ create table if not exists app_settings (
   mailbox_address text not null default '',
   owner_emails jsonb not null default '{}'::jsonb,
   default_manual_email text not null default '',
+  scholarship_check_ai_model text not null default 'qwen3-5-397b-a17b',
   room_auto_approve_enabled boolean not null default true,
   knowledge_base_enabled boolean not null default true,
   mail_sync_enabled boolean not null default false,
@@ -119,6 +120,46 @@ create table if not exists knowledge_entries (
 );
 
 create index if not exists idx_knowledge_entries_category on knowledge_entries(category);
+
+create table if not exists college_knowledge_documents (
+  id text primary key,
+  file_name text not null,
+  original_name text not null,
+  relative_path text,
+  content_type text,
+  size integer not null default 0,
+  sha256 text not null unique,
+  status text not null,
+  error text,
+  warnings jsonb not null default '[]'::jsonb,
+  storage_path text not null,
+  extracted_markdown_path text not null,
+  metadata_path text not null,
+  chunk_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_college_knowledge_documents_status on college_knowledge_documents(status);
+create index if not exists idx_college_knowledge_documents_updated_at on college_knowledge_documents(updated_at desc);
+
+create table if not exists college_knowledge_chunks (
+  id text primary key,
+  document_id text not null references college_knowledge_documents(id) on delete cascade,
+  chunk_index integer not null,
+  title text,
+  locator text not null,
+  source_path text,
+  text text not null,
+  markdown text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  token_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (document_id, chunk_index)
+);
+
+create index if not exists idx_college_knowledge_chunks_document_id on college_knowledge_chunks(document_id, chunk_index);
 
 create table if not exists audit_logs (
   id text primary key,

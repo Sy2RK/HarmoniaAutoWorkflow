@@ -34,12 +34,81 @@ export type ScholarshipEvidenceVerification = {
   missingItems: string[];
 };
 
+export type AwardConfidenceTextField =
+  | "personalStatement"
+  | "collegeContribution"
+  | "servicePractice"
+  | "dormService"
+  | "academic"
+  | "studentOrg"
+  | "awardsGeneral"
+  | "sports"
+  | "artsTalent";
+
+export type AwardConfidenceTextEvaluationInput = {
+  applicantName: string;
+  awardName: string;
+  sheetName: string;
+  rowNumber: number;
+  fields: Record<AwardConfidenceTextField, string>;
+  notes: string;
+};
+
+export type AwardConfidenceTextEvaluation = {
+  fieldScores: Partial<Record<AwardConfidenceTextField, number>>;
+  riskPenalty: number;
+  summary: string;
+};
+
+export type CollegeKnowledgeRerankCandidate = {
+  id: string;
+  documentName: string;
+  locator: string;
+  title: string | null;
+  text: string;
+  lexicalScore: number;
+};
+
+export type CollegeKnowledgeRerankInput = {
+  question: string;
+  imageText: string | null;
+  candidates: CollegeKnowledgeRerankCandidate[];
+};
+
+export type CollegeKnowledgeRerankResult = {
+  selectedIds: string[];
+  reasons: Record<string, string>;
+};
+
+export type CollegeKnowledgeAnswerInput = {
+  question: string;
+  imageText: string | null;
+  sources: Array<{
+    id: string;
+    documentName: string;
+    locator: string;
+    title: string | null;
+    text: string;
+  }>;
+};
+
+export type CollegeKnowledgeAnswerResult = {
+  answerable: boolean;
+  answer: string;
+  sourceIds: string[];
+  warnings: string[];
+};
+
 export interface AiClient {
   classify(input: { subject: string; bodyText: string }): Promise<MailCategory | null>;
   extractJson(input: { task: string; subject: string; bodyText: string }): Promise<Record<string, unknown> | null>;
   generateReply(input: { subject: string; bodyText: string; facts: string; constraints: string[] }): Promise<string | null>;
   extractAwardFromImage(input: { filePath: string; contentType: string }): Promise<AwardInfo | null>;
   verifyScholarshipEvidence(input: ScholarshipEvidenceVerificationInput): Promise<ScholarshipEvidenceVerification | null>;
+  evaluateAwardConfidence(input: AwardConfidenceTextEvaluationInput): Promise<AwardConfidenceTextEvaluation | null>;
+  describeCollegeKnowledgeImage(input: { filePath: string; contentType: string }): Promise<string | null>;
+  rerankCollegeKnowledge(input: CollegeKnowledgeRerankInput): Promise<CollegeKnowledgeRerankResult | null>;
+  answerCollegeKnowledge(input: CollegeKnowledgeAnswerInput): Promise<CollegeKnowledgeAnswerResult | null>;
 }
 
 export class NoopAiClient implements AiClient {
@@ -62,6 +131,22 @@ export class NoopAiClient implements AiClient {
   async verifyScholarshipEvidence(_input: ScholarshipEvidenceVerificationInput): Promise<ScholarshipEvidenceVerification | null> {
     return null;
   }
+
+  async evaluateAwardConfidence(_input: AwardConfidenceTextEvaluationInput): Promise<AwardConfidenceTextEvaluation | null> {
+    return null;
+  }
+
+  async describeCollegeKnowledgeImage(_input: { filePath: string; contentType: string }): Promise<string | null> {
+    return null;
+  }
+
+  async rerankCollegeKnowledge(_input: CollegeKnowledgeRerankInput): Promise<CollegeKnowledgeRerankResult | null> {
+    return null;
+  }
+
+  async answerCollegeKnowledge(_input: CollegeKnowledgeAnswerInput): Promise<CollegeKnowledgeAnswerResult | null> {
+    return null;
+  }
 }
 
 export class OpenAiCompatibleClient implements AiClient {
@@ -76,6 +161,7 @@ export class OpenAiCompatibleClient implements AiClient {
   }
 
   private async chat(provider: OpenAiProviderConfig, messages: unknown[], json = false): Promise<string | null> {
+    const model = await resolveProviderModel(provider);
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -83,7 +169,7 @@ export class OpenAiCompatibleClient implements AiClient {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: provider.model,
+        model,
         messages,
         temperature: 0.1,
         response_format: json ? { type: "json_object" } : undefined
@@ -91,7 +177,7 @@ export class OpenAiCompatibleClient implements AiClient {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`OpenAI-compatible request failed ${response.status}: ${text}`);
+      throw new Error(`OpenAI-compatible request failed ${response.status} with model ${model}: ${text}`);
     }
     const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
     return data.choices?.[0]?.message?.content ?? null;
@@ -195,12 +281,12 @@ export class OpenAiCompatibleClient implements AiClient {
       image_url: { url: image.dataUrl }
     }));
     const content = await this.chat(
-      this.scholarshipProvider,
+      this.textProvider,
       [
         {
           role: "system",
           content:
-            "你是高校奖学金/优秀毕业生证明材料核验员。你必须只基于用户提供的申报文本和证明材料图片判断，不得编造。只输出 JSON，字段为 supported, confidence, summary, issues, matchedItems, missingItems。confidence 为 0 到 1。issues、matchedItems、missingItems 必须是字符串数组。"
+            "你是高校奖学金/优秀毕业生证明材料核验员。核验原则偏宽松：只要申请人身份、核心奖项/项目名称、年份或学年大体能对上，即视为证明支持申报。精确到日的日期、简称/中英文译名、单位法定名差异、角色名称近义表述、轻微错别字或证明形式不够正式，不算不匹配，只可写入 summary 提醒。只有不同人、完全不同奖项/项目、年份或学年明显冲突、奖项等级/名次明显冲突、证明指向完全不同经历时，才写入 issues。只输出 JSON，字段为 supported, confidence, summary, issues, matchedItems, missingItems。confidence 为 0 到 1。issues、matchedItems、missingItems 必须是字符串数组。"
         },
         {
           role: "user",
@@ -213,7 +299,7 @@ export class OpenAiCompatibleClient implements AiClient {
                 `核对类别：${input.categoryLabel}\n` +
                 `申报内容：\n${input.declaredText.slice(0, 4000)}\n\n` +
                 `本批证明页来自：${input.fileNames.join("；").slice(0, 1200)}\n\n` +
-                "请判断这些证明页是否支持申报内容。若发现姓名、日期、角色、组织、奖项、颁发单位不一致，请在 issues 中具体说明。若只能支持部分条目，请在 matchedItems 与 missingItems 中列出。"
+                "请判断这些证明页是否支持申报内容。优先核对申请人、核心奖项/项目名称、年份或学年；只要主要时间与奖项/项目名称对得上，就应 supported=true。不要因为落款日不可见、日期只到年月/学年、名称一字差、简称/英文译名、同一单位不同表述、角色近义词或截图/照片形式而写入 issues。硬性冲突才写入 issues；只能支持部分条目时，在 matchedItems 与 missingItems 中列出。"
             },
             ...imageParts
           ]
@@ -228,12 +314,153 @@ export class OpenAiCompatibleClient implements AiClient {
       return null;
     }
   }
+
+  async evaluateAwardConfidence(input: AwardConfidenceTextEvaluationInput): Promise<AwardConfidenceTextEvaluation | null> {
+    const content = await this.chat(
+      this.scholarshipProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院奖学金申请材料匹配度评审助手。最高原则：只判断 XLSX 中与书院生活、社会服务、书院活动、书院组织或宿舍生活贡献直接相关的文字材料；GPA、学业成绩、专业竞赛、校外/院系/社会普通奖项、推荐人完整度和初审结果一律不作为加分项。不要验证外部证明文件。必须只输出 JSON：{fieldScores:{personalStatement,collegeContribution,servicePractice,dormService,academic,studentOrg,awardsGeneral,sports,artsTalent},riskPenalty,summary}。每个 field score 是 0 到 1，riskPenalty 是 0 到 0.35。academic 必须为 0；awardsGeneral 只在奖项明确属于书院生活、书院服务或书院活动成果时才可给分。"
+        },
+        {
+          role: "user",
+          content:
+            `申请人：${input.applicantName || "未知"}\n` +
+            `Sheet：${input.sheetName}，行号：${input.rowNumber}\n` +
+            `申请奖项：${input.awardName}\n\n` +
+            "奖项画像参考：\n" +
+            "- 院长嘉许奖：综合看书院生活参与、书院活动贡献、社会服务、宿舍生活服务、书院相关组织贡献。\n" +
+            "- 杰出领导力奖：重点看书院相关组织、书院活动、宿舍/社区服务中的领导岗位、组织协调和影响力。\n" +
+            "- 优秀服务奖：重点看书院/宿舍/社会服务实践、志愿服务、社区贡献和持续投入。\n" +
+            "- 卓越体育贡献奖：只看体育能力如何转化为书院活动、书院队伍、书院体育文化或书院同学服务贡献；纯竞赛成绩不加分。\n" +
+            "- 卓越才艺贡献奖：只看才艺能力如何转化为书院活动、书院文化建设、书院同学服务或书院公共展示贡献；纯才艺奖项不加分。\n\n" +
+            "请分别判断每个字段在书院相关范围内对该奖项的匹配度。字段为空或内容与书院生活/服务/活动无关应给低分；内容具体、持续、有影响力、与书院奖项画像高度一致应给高分。sports/artsTalent 是从个人陈述、书院活动贡献、学生组织、奖项/其他等文本中综合判断的书院相关专项贡献分；不要因校外或纯个人体育/才艺奖项给高分。\n\n" +
+            `个人陈述：\n${input.fields.personalStatement.slice(0, 2500)}\n\n` +
+            `书院活动贡献：\n${input.fields.collegeContribution.slice(0, 2500)}\n\n` +
+            `社会服务实践和成就：\n${input.fields.servicePractice.slice(0, 2500)}\n\n` +
+            `宿舍生活服务：\n${input.fields.dormService.slice(0, 2500)}\n\n` +
+            "学业表现：此字段已在前置流程审查，本模块不参与评分，academic 请输出 0。\n\n" +
+            `学生组织：\n${input.fields.studentOrg.slice(0, 2500)}\n\n` +
+            `奖项/其他（仅可考虑明确属于书院生活、书院服务或书院活动的条目）：\n${input.fields.awardsGeneral.slice(0, 2500)}\n\n` +
+            `核对备注说明：\n${input.notes.slice(0, 1500)}`
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeAwardConfidenceEvaluation(JSON.parse(content) as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  async describeCollegeKnowledgeImage(input: { filePath: string; contentType: string }): Promise<string | null> {
+    const buffer = await readFile(input.filePath);
+    const dataUrl = `data:${input.contentType};base64,${buffer.toString("base64")}`;
+    return this.chat(this.visionProvider, [
+      {
+        role: "system",
+        content:
+          "你是书院知识问答的图片理解助手。请只提取图片中与用户提问有关的文字、表格、截图内容或关键信息，不要回答问题，不要编造看不见的内容。"
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "请把这张图片中可用于知识库问答检索的信息整理为简洁中文文本。" },
+          { type: "image_url", image_url: { url: dataUrl } }
+        ]
+      }
+    ]);
+  }
+
+  async rerankCollegeKnowledge(input: CollegeKnowledgeRerankInput): Promise<CollegeKnowledgeRerankResult | null> {
+    if (input.candidates.length === 0) return null;
+    const candidates = input.candidates.map((candidate, index) => ({
+      rank: index + 1,
+      id: candidate.id,
+      documentName: candidate.documentName,
+      locator: candidate.locator,
+      title: candidate.title,
+      lexicalScore: candidate.lexicalScore,
+      text: candidate.text.slice(0, 1200)
+    }));
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院知识库检索 rerank 助手。只根据候选片段和用户问题判断相关性。必须只输出 JSON：{selectedIds:string[], reasons:{[id]:string}}。selectedIds 最多 8 个，按相关性从高到低排列；不要输出候选外的 id。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              question: input.question,
+              imageText: input.imageText,
+              candidates
+            },
+            null,
+            2
+          )
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeCollegeKnowledgeRerank(JSON.parse(content) as Record<string, unknown>, new Set(input.candidates.map((candidate) => candidate.id)));
+    } catch {
+      return null;
+    }
+  }
+
+  async answerCollegeKnowledge(input: CollegeKnowledgeAnswerInput): Promise<CollegeKnowledgeAnswerResult | null> {
+    if (input.sources.length === 0) return null;
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院知识问答助手。只能基于 sources 中的片段回答，不得使用常识补全政策、时间、地点、联系人或流程。必须只输出 JSON：{answerable:boolean, answer:string, sourceIds:string[], warnings:string[]}。如果资料不足，answerable=false，answer 说明未在已上传资料中找到明确依据，sourceIds 为空或仅保留最相关依据。sourceIds 必须来自 sources 的 id。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              question: input.question,
+              imageText: input.imageText,
+              sources: input.sources.map((source, index) => ({
+                label: `S${index + 1}`,
+                ...source,
+                text: source.text.slice(0, 1800)
+              }))
+            },
+            null,
+            2
+          )
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeCollegeKnowledgeAnswer(JSON.parse(content) as Record<string, unknown>, new Set(input.sources.map((source) => source.id)));
+    } catch {
+      return null;
+    }
+  }
 }
 
 export type OpenAiProviderConfig = {
   apiKey: string;
   baseUrl: string;
   model: string;
+  modelSelector?: () => Promise<string> | string;
 };
 
 function normalizeProvider(provider: OpenAiProviderConfig): OpenAiProviderConfig {
@@ -241,6 +468,11 @@ function normalizeProvider(provider: OpenAiProviderConfig): OpenAiProviderConfig
     ...provider,
     baseUrl: provider.baseUrl.replace(/\/$/, "")
   };
+}
+
+async function resolveProviderModel(provider: OpenAiProviderConfig): Promise<string> {
+  const selected = provider.modelSelector ? await provider.modelSelector() : provider.model;
+  return selected.trim() || provider.model;
 }
 
 function normalizeScholarshipVerification(value: Record<string, unknown>): ScholarshipEvidenceVerification {
@@ -254,6 +486,56 @@ function normalizeScholarshipVerification(value: Record<string, unknown>): Schol
   };
 }
 
+function normalizeAwardConfidenceEvaluation(value: Record<string, unknown>): AwardConfidenceTextEvaluation {
+  const rawScores = isRecord(value.fieldScores) ? value.fieldScores : {};
+  const fields: AwardConfidenceTextField[] = [
+    "personalStatement",
+    "collegeContribution",
+    "servicePractice",
+    "dormService",
+    "academic",
+    "studentOrg",
+    "awardsGeneral",
+    "sports",
+    "artsTalent"
+  ];
+  const fieldScores: Partial<Record<AwardConfidenceTextField, number>> = {};
+  for (const field of fields) {
+    fieldScores[field] = clampConfidence(rawScores[field]);
+  }
+  const riskPenalty = Math.max(0, Math.min(0.35, Number(value.riskPenalty ?? 0) || 0));
+  return {
+    fieldScores,
+    riskPenalty,
+    summary: typeof value.summary === "string" ? value.summary : ""
+  };
+}
+
+function normalizeCollegeKnowledgeRerank(value: Record<string, unknown>, allowedIds: Set<string>): CollegeKnowledgeRerankResult {
+  const selectedIds = uniqueStrings(value.selectedIds).filter((id) => allowedIds.has(id)).slice(0, 8);
+  const rawReasons = isRecord(value.reasons) ? value.reasons : {};
+  const reasons: Record<string, string> = {};
+  for (const id of selectedIds) {
+    const reason = rawReasons[id];
+    if (typeof reason === "string" && reason.trim()) reasons[id] = reason.trim();
+  }
+  return { selectedIds, reasons };
+}
+
+function normalizeCollegeKnowledgeAnswer(value: Record<string, unknown>, allowedIds: Set<string>): CollegeKnowledgeAnswerResult {
+  const sourceIds = uniqueStrings(value.sourceIds).filter((id) => allowedIds.has(id));
+  return {
+    answerable: value.answerable === true,
+    answer: typeof value.answer === "string" ? value.answer.trim() : "",
+    sourceIds,
+    warnings: stringArray(value.warnings)
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function clampConfidence(value: unknown): number {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -263,4 +545,8 @@ function clampConfidence(value: unknown): number {
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function uniqueStrings(value: unknown): string[] {
+  return [...new Set(stringArray(value))];
 }

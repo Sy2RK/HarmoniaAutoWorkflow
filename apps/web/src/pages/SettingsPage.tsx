@@ -2,9 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import {
   mailCategoryLabels,
+  scholarshipAiModels,
   type AppSettings,
   type BusinessOwnerConfig,
-  type KnowledgeEntry,
   type MailCategory
 } from "@harmonia/shared";
 import { api } from "../api/client.js";
@@ -26,23 +26,15 @@ function joinLines(value: string[]): string {
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notice, setNotice] = useState("");
   const [roomText, setRoomText] = useState("");
   const [purposeText, setPurposeText] = useState("");
-  const [faq, setFaq] = useState({
-    category: "party_consultation" as KnowledgeEntry["category"],
-    question: "",
-    answer: "",
-    enabled: true
-  });
 
   const load = async () => {
-    const [settingsData, knowledgeData] = await Promise.all([api.settings(), api.knowledge()]);
+    const settingsData = await api.settings();
     setSettings(settingsData);
     setRoomText(joinLines(settingsData.roomRules.allowedRooms));
     setPurposeText(joinLines(settingsData.roomRules.allowedPurposes));
-    setKnowledge(knowledgeData.items);
   };
 
   useEffect(() => {
@@ -68,14 +60,6 @@ export function SettingsPage() {
     });
     setSettings(saved);
     setNotice("配置已保存");
-  };
-
-  const saveKnowledge = async (event: FormEvent) => {
-    event.preventDefault();
-    await api.saveKnowledge(faq);
-    setFaq({ category: faq.category, question: "", answer: "", enabled: true });
-    await load();
-    setNotice("知识库已更新");
   };
 
   if (!settings) return <Loading label="读取配置" />;
@@ -124,6 +108,25 @@ export function SettingsPage() {
         </section>
 
         <section className="panel">
+          <div className="panel-title">AI 模型</div>
+          <label>
+            核对模型
+            <select
+              value={settings.scholarshipCheckAiModel}
+              onChange={(event) =>
+                setSettings({ ...settings, scholarshipCheckAiModel: event.target.value as AppSettings["scholarshipCheckAiModel"] })
+              }
+            >
+              {scholarshipAiModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
+
+        <section className="panel">
           <div className="panel-title">负责老师邮箱</div>
           {ownerCategories.map((category) => (
             <label key={category}>
@@ -161,49 +164,6 @@ export function SettingsPage() {
         </section>
       </form>
 
-      <div className="settings-grid">
-        <section className="panel">
-          <div className="panel-title">新增知识库</div>
-          <form className="knowledge-form" onSubmit={saveKnowledge}>
-            <label>
-              类别
-              <select value={faq.category} onChange={(event) => setFaq({ ...faq, category: event.target.value as KnowledgeEntry["category"] })}>
-                <option value="party_consultation">党团关系咨询</option>
-                <option value="admission_consultation">入学季咨询</option>
-              </select>
-            </label>
-            <label>
-              问题
-              <input value={faq.question} onChange={(event) => setFaq({ ...faq, question: event.target.value })} />
-            </label>
-            <label>
-              标准答案
-              <textarea value={faq.answer} onChange={(event) => setFaq({ ...faq, answer: event.target.value })} />
-            </label>
-            <label className="checkbox-line">
-              <input type="checkbox" checked={faq.enabled} onChange={(event) => setFaq({ ...faq, enabled: event.target.checked })} />
-              启用
-            </label>
-            <button className="icon-text" type="submit">
-              <Save size={17} />
-              <span>保存知识</span>
-            </button>
-          </form>
-        </section>
-        <section className="panel">
-          <div className="panel-title">知识库条目</div>
-          <ul className="knowledge-list">
-            {knowledge.map((entry) => (
-              <li key={entry.id}>
-                <strong>{entry.question}</strong>
-                <span>{entry.category === "party_consultation" ? "党团关系" : "入学季"}</span>
-                <p>{entry.answer}</p>
-              </li>
-            ))}
-            {!knowledge.length ? <li>暂无知识库条目</li> : null}
-          </ul>
-        </section>
-      </div>
     </section>
   );
 }
