@@ -1,6 +1,7 @@
 import type { ChangeEvent, FormEvent, InputHTMLAttributes } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type {
+  CollegeKnowledgeChatMode,
   CollegeKnowledgeDocument,
   CollegeKnowledgeDocumentStatus,
   CollegeKnowledgeSource
@@ -16,6 +17,7 @@ type UserChatTurn = {
   role: "user";
   content: string;
   imageNames: string[];
+  mode?: CollegeKnowledgeChatMode;
 };
 
 type AssistantChatTurn = {
@@ -35,6 +37,8 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 const acceptedKnowledgeFiles = ".doc,.docx,.ppt,.pptx,.xls,.xlsx,.pdf,.md,.txt,.csv,.html,.htm,.zip";
+const chatStorageKey = "college-knowledge-chat-turns";
+const chatModeStorageKey = "college-knowledge-chat-mode";
 
 const documentStatusLabels: Record<CollegeKnowledgeDocumentStatus, string> = {
   queued: "排队中",
@@ -93,9 +97,46 @@ function sourceTitle(source: CollegeKnowledgeSource): string {
   return source.relativePath || source.documentName;
 }
 
+function modeLabel(mode: CollegeKnowledgeChatMode): string {
+  return mode === "precise" ? "精准模式" : "快速模式";
+}
+
+function readStoredChatMode(): CollegeKnowledgeChatMode {
+  if (typeof window === "undefined") return "fast";
+  return window.localStorage.getItem(chatModeStorageKey) === "precise" ? "precise" : "fast";
+}
+
+function readStoredChatTurns(): ChatTurn[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(chatStorageKey) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((turn): turn is ChatTurn => {
+        if (!turn || typeof turn !== "object") return false;
+        const candidate = turn as Partial<ChatTurn>;
+        if (typeof candidate.id !== "string") return false;
+        if (candidate.role === "user") return typeof candidate.content === "string" && Array.isArray(candidate.imageNames);
+        if (candidate.role === "assistant") {
+          return (
+            typeof candidate.content === "string" &&
+            typeof candidate.answerable === "boolean" &&
+            Array.isArray(candidate.sources) &&
+            Array.isArray(candidate.warnings)
+          );
+        }
+        return false;
+      })
+      .slice(-80);
+  } catch {
+    return [];
+  }
+}
+
 export function CollegeKnowledgePage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("chat");
-  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>(() => readStoredChatTurns());
+  const [chatMode, setChatMode] = useState<CollegeKnowledgeChatMode>(() => readStoredChatMode());
   const [message, setMessage] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [asking, setAsking] = useState(false);
@@ -137,6 +178,14 @@ export function CollegeKnowledgePage() {
     void loadDocuments();
   }, []);
 
+  useEffect(() => {
+    window.localStorage.setItem(chatStorageKey, JSON.stringify(chatTurns));
+  }, [chatTurns]);
+
+  useEffect(() => {
+    window.localStorage.setItem(chatModeStorageKey, chatMode);
+  }, [chatMode]);
+
   const selectImages = (event: ChangeEvent<HTMLInputElement>) => {
     const nextImages = Array.from(event.currentTarget.files ?? []);
     if (nextImages.length) {
@@ -163,7 +212,8 @@ export function CollegeKnowledgePage() {
       id: makeId("question"),
       role: "user",
       content: trimmed,
-      imageNames: selectedImages.map((image) => image.name)
+      imageNames: selectedImages.map((image) => image.name),
+      mode: chatMode
     };
 
     setChatTurns((previous) => [...previous, userTurn]);
@@ -173,7 +223,7 @@ export function CollegeKnowledgePage() {
     setChatError("");
 
     try {
-      const response = await api.askCollegeKnowledge({ message: trimmed, images: selectedImages });
+      const response = await api.askCollegeKnowledge({ message: trimmed, mode: chatMode, images: selectedImages });
       const assistantTurn: AssistantChatTurn = {
         id: makeId("answer"),
         role: "assistant",
@@ -202,6 +252,14 @@ export function CollegeKnowledgePage() {
 
   const removeUploadFile = (index: number) => {
     setUploadFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const clearChatSession = () => {
+    setChatTurns([]);
+    setMessage("");
+    setImages([]);
+    setChatError("");
+    window.localStorage.removeItem(chatStorageKey);
   };
 
   const startUpload = async () => {
@@ -302,7 +360,35 @@ export function CollegeKnowledgePage() {
         <section className="panel college-chat-panel">
           <div className="panel-heading">
             <div className="panel-title">知识问答</div>
-            <span className="muted-hint">当前可问答文档 {documentSummary.ready} 个</span>
+            <div className="chat-toolbar">
+              <div className="mode-toggle" role="radiogroup" aria-label="问答模式">
+                <button
+                  type="button"
+                  className={chatMode === "fast" ? "active" : ""}
+                  aria-checked={chatMode === "fast"}
+                  role="radio"
+                  onClick={() => setChatMode("fast")}
+                  disabled={asking}
+                >
+                  快速
+                </button>
+                <button
+                  type="button"
+                  className={chatMode === "precise" ? "active" : ""}
+                  aria-checked={chatMode === "precise"}
+                  role="radio"
+                  onClick={() => setChatMode("precise")}
+                  disabled={asking}
+                >
+                  精准
+                </button>
+              </div>
+              <button className="icon-text danger compact" type="button" onClick={clearChatSession} disabled={asking || chatTurns.length === 0}>
+                <Trash2 size={16} />
+                <span>清空会话</span>
+              </button>
+              <span className="muted-hint">当前可问答文档 {documentSummary.ready} 个</span>
+            </div>
           </div>
 
           {chatError ? <div className="notice danger">{chatError}</div> : null}
@@ -314,6 +400,9 @@ export function CollegeKnowledgePage() {
                   <div className="chat-message user" key={turn.id}>
                     <div className="chat-bubble">
                       <p>{turn.content}</p>
+                      <div className="chat-file-tags">
+                        <span>{modeLabel(turn.mode ?? "fast")}</span>
+                      </div>
                       {turn.imageNames.length ? (
                         <div className="chat-file-tags">
                           {turn.imageNames.map((name) => (

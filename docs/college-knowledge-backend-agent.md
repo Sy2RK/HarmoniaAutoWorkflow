@@ -424,6 +424,7 @@ Expected fields:
 
 - `message`: string.
 - `sessionId`: optional string.
+- `mode`: optional `"fast"` or `"precise"`. `fast` skips LLM rerank and uses lexical top chunks directly; `precise` enables LLM rerank for the request.
 - `images`: optional files.
 
 Returns:
@@ -454,6 +455,10 @@ export const collegeKnowledgeDocumentStatuses = [
 ] as const;
 
 export type CollegeKnowledgeDocumentStatus = (typeof collegeKnowledgeDocumentStatuses)[number];
+
+export const collegeKnowledgeChatModes = ["fast", "precise"] as const;
+
+export type CollegeKnowledgeChatMode = (typeof collegeKnowledgeChatModes)[number];
 
 export type CollegeKnowledgeDocument = {
   id: string;
@@ -524,3 +529,20 @@ Record implementation progress and final API surface in `docs/backend-agent.md`.
 ## Implementation Notes From Feasibility Check
 
 The local `RAGMaterial` sample contains an extracted college corpus, including an XLSX FAQ-like workbook, DOCX files, and PDFs. The current project already has `xlsx` and `pdf-parse` available. The environment did not show installed `soffice`, `libreoffice`, `pandoc`, `antiword`, `catdoc`, or `pdftotext`, so old binary Office formats need an explicit converter dependency or must be marked unsupported.
+
+## Implementation Progress
+
+### 2026-06-25 Fast Path Update
+
+- Default Q&A path now skips LLM rerank for speed and sends the lexical top 8 chunks directly to answer generation.
+- Optional rerank support remains available through the backend build option `collegeKnowledgeRerankEnabled`.
+- RAGMaterial local smoke check: 3 representative questions made 0 rerank calls, 3 answer calls, and retained correct top sources for 入党、功能房、退宿.
+
+### 2026-06-25 Request-Level Mode Update
+
+- Added shared `CollegeKnowledgeChatMode` values: `fast` and `precise`.
+- Extended JSON and multipart `/college-knowledge/chat` requests to accept optional `mode`.
+- `fast` mode uses lexical top 8 chunks directly; `precise` mode retrieves a wider candidate set and runs LLM rerank before answer generation.
+- Backend validation passed:
+  - `pnpm --filter @harmonia/api test -- apps/api/test/collegeKnowledge.test.ts`
+  - `pnpm --filter @harmonia/api typecheck`

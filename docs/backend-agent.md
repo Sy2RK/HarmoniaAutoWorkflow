@@ -200,6 +200,12 @@ All passed.
 - Backend scope: authenticated `/college-knowledge` routes, document upload, parser/converter pipeline, canonical Markdown extraction, source-aware chunks, lexical retrieval without embeddings, LLM reranking, source-grounded answer generation, database/storage changes, shared types, and tests.
 - Boundary: backend agents must not implement React pages, sidebar navigation, settings-page UI cleanup, or CSS; frontend work is specified in `docs/college-knowledge-frontend-agent.md`.
 
+### 2026-06-25 College Knowledge Fast Path
+
+- Changed the college knowledge chat path to skip LLM reranking by default: lexical retrieval now selects the top 8 chunks directly for the answer-generation call.
+- Kept optional rerank support available through the backend build option `collegeKnowledgeRerankEnabled`, but production startup does not enable it by default.
+- Local RAGMaterial smoke check showed `rerankCalls=0`, one answer-model call per question, and correct top sources for 入党、功能房、退宿 questions.
+
 ### 2026-06-25 Lenient Material Evidence Review
 
 - Relaxed material-check evidence review so core applicant, award/project name, and year/academic-year matching is enough for `无问题`.
@@ -215,3 +221,34 @@ All passed.
 - Added shared college knowledge document/source/chat response types and OpenAI-compatible AI methods for image extraction, rerank, and answer generation.
 - Added backend tests for upload, temp-file ignore, xlsx FAQ chunks, PDF page locators, docx/pptx locators, unsupported legacy Office files, reindex, delete, no-answer behavior, source citations, and multipart image chat.
 - Validation passed: `pnpm --filter @harmonia/api test`, `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/web typecheck`, and `pnpm review`.
+
+### 2026-06-25 College Knowledge Chat Modes
+
+- Added shared `CollegeKnowledgeChatMode` contract with `fast` and `precise`.
+- Extended `/college-knowledge/chat` JSON and multipart requests so callers can choose fast lexical-only selection or precise LLM rerank per request.
+- Kept backend default at fast mode unless a request explicitly sends `mode: "precise"` or the app build option enables rerank.
+- Validation passed: `pnpm --filter @harmonia/api test -- apps/api/test/collegeKnowledge.test.ts` and `pnpm --filter @harmonia/api typecheck`.
+
+### 2026-06-29 Message Agent Planning
+
+- Added `docs/message-agent-backend-agent.md` as the backend-only implementation brief for the independent `邮件写作 Agent` module.
+- Backend scope: `/message-agent` sessions, file upload parsing, sample-email template extraction, conversational missing-slot questions, plain-text draft generation, DOCX export, separate storage, shared types, and tests.
+- Boundary: first version must not parse `.msg` or old `.doc`, must not send email, and must not modify `/college-knowledge` or `college_knowledge_*` behavior.
+
+### 2026-06-29 Message Agent Backend
+
+- Implemented the independent backend-only message writing module under `apps/api/src/message-agent/`.
+- Added authenticated `/message-agent` session, file upload, chat, draft patch, DOCX export, and delete APIs, with runtime state stored separately under `storage/message-agent`.
+- Added parsers for `xlsx/xls/csv`, `docx`, `pdf`, `md`, and `txt`; temporary Office lock files are ignored, and `.msg` plus old `.doc` files are recorded as unsupported for the first version.
+- Added template extraction from the sample email workbook and uploaded DOCX/PDF/text sources, lexical template retrieval, missing-slot follow-up questions, AI-backed draft generation, deterministic fallback drafts, manual draft persistence, and DOCX export with source references.
+- Added shared message-agent API contracts and OpenAI-compatible AI methods for template extraction, request classification, draft planning, draft generation, and image-to-text extraction.
+- Added backend tests for workbook template categories, unsupported files, DOCX/PDF parsing behavior, follow-up questions, template-based draft generation, manual draft edits, and DOCX export.
+- Validation passed: `pnpm --filter @harmonia/api test -- test/messageAgent.test.ts`, `pnpm --filter @harmonia/api test`, `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/web typecheck`, and `pnpm review`.
+
+### 2026-06-29 Message Agent PDF Portfolio Parsing
+
+- Added a PDF Portfolio extraction path for the message writing module.
+- Normal PDF files still use `pdf-parse`; Outlook PDF Portfolio shells now use PDF.js attachment extraction, recursively parse embedded PDF attachments, and use the embedded text as template material.
+- Shell-only Portfolio PDFs without extractable attachments still return a partial result with `PDF_PORTFOLIO_TEXT_NOT_EXTRACTED`.
+- Added coverage with a real Outlook-exported Portfolio PDF sample and kept the shell-only fallback test.
+- Validation passed: `pnpm --filter @harmonia/api typecheck`, `pnpm --filter @harmonia/api test -- test/messageAgent.test.ts`, and `pnpm --filter @harmonia/api test`.

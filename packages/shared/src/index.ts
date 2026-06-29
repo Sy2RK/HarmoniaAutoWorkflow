@@ -155,6 +155,10 @@ export const collegeKnowledgeDocumentStatuses = ["queued", "processing", "ready"
 
 export type CollegeKnowledgeDocumentStatus = (typeof collegeKnowledgeDocumentStatuses)[number];
 
+export const collegeKnowledgeChatModes = ["fast", "precise"] as const;
+
+export type CollegeKnowledgeChatMode = (typeof collegeKnowledgeChatModes)[number];
+
 export type CollegeKnowledgeDocument = {
   id: string;
   fileName: string;
@@ -189,6 +193,144 @@ export type CollegeKnowledgeChatResponse = {
   answer: string;
   answerable: boolean;
   sources: CollegeKnowledgeSource[];
+  warnings: string[];
+};
+
+export const messageAgentTemplateCategories = [
+  "facility_notice",
+  "youth_league",
+  "electricity_subsidy",
+  "function_room",
+  "property_staff",
+  "bfmo_coordination",
+  "recommendation_letter",
+  "event_registration",
+  "format_reminder",
+  "general_reply"
+] as const;
+
+export type MessageAgentTemplateCategory = (typeof messageAgentTemplateCategories)[number];
+
+export const messageAgentFileStatuses = ["ready", "partial", "unsupported", "failed", "ignored"] as const;
+
+export type MessageAgentFileStatus = (typeof messageAgentFileStatuses)[number];
+
+export type MessageAgentFileRole = "reference" | "request" | "attachment";
+
+export type MessageAgentLanguage = "zh" | "en" | "bilingual" | "mixed";
+
+export type MessageAgentAudience = "student" | "teachers_students" | "department" | "recommender" | "staff" | "unknown";
+
+export type MessageAgentSlot = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
+export type MessageAgentSession = {
+  id: string;
+  status: "active" | "deleted";
+  createdAt: string;
+  updatedAt: string;
+  sourceCount: number;
+  templateCount: number;
+  messageCount: number;
+  latestDraftId: string | null;
+};
+
+export type MessageAgentUploadProgress = {
+  active: boolean;
+  phase: "uploading" | "parsing" | "templating" | "completed" | "failed";
+  role: MessageAgentFileRole;
+  totalFiles: number;
+  processedFiles: number;
+  currentFileName: string | null;
+  warnings: string[];
+  error: string | null;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
+export type MessageAgentMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  metadata: Record<string, unknown>;
+};
+
+export type MessageAgentSource = {
+  id: string;
+  sessionId: string;
+  fileName: string;
+  originalName: string;
+  relativePath: string | null;
+  role: MessageAgentFileRole;
+  contentType: string | null;
+  size: number;
+  status: MessageAgentFileStatus;
+  text: string;
+  warnings: string[];
+  createdAt: string;
+};
+
+export type MessageAgentTemplate = {
+  id: string;
+  category: MessageAgentTemplateCategory;
+  title: string;
+  language: MessageAgentLanguage;
+  audience: MessageAgentAudience;
+  subjectPattern: string | null;
+  bodySkeleton: string;
+  requiredSlots: MessageAgentSlot[];
+  optionalSlots: MessageAgentSlot[];
+  tone: string;
+  signatureStyle: string | null;
+  sourceIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MessageAgentDraft = {
+  id: string;
+  subject: string;
+  body: string;
+  plainText: string;
+  sourceIds: string[];
+  sourceRefs?: MessageAgentSourceRef[];
+  attachmentSuggestions: string[];
+  missingSlots: MessageAgentSlot[];
+  createdAt: string;
+  updatedAt: string;
+  editedAt: string | null;
+};
+
+export type MessageAgentQuestion = {
+  slotKey: string;
+  question: string;
+  required: boolean;
+};
+
+export type MessageAgentSourceRef = {
+  sourceId: string;
+  templateId: string | null;
+  fileName: string;
+  title: string;
+  category: MessageAgentTemplateCategory | null;
+  snippet: string;
+};
+
+export const messageAgentChatModes = ["fast", "precise"] as const;
+
+export type MessageAgentChatMode = (typeof messageAgentChatModes)[number];
+
+export type MessageAgentChatResponse = {
+  session: MessageAgentSession;
+  assistantMessage: MessageAgentMessage;
+  draft: MessageAgentDraft | null;
+  followUpQuestions: MessageAgentQuestion[];
+  sources: MessageAgentSourceRef[];
   warnings: string[];
 };
 

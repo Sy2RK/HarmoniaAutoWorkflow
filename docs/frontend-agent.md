@@ -79,6 +79,12 @@ Best UI rule: derive actions from `message.status`, `message.needsReview`, and w
 
 ## Current Progress
 
+- Implemented the independent `邮件写作 Agent` frontend route at `/message-agent` with sidebar navigation and keep-alive page state.
+- Added a usable upload + chat + draft workflow: reference library upload, current request file upload, image/text chat, follow-up question cards, source references, editable subject/body, draft save, and DOCX download.
+- Split `/message-agent` into `邮件写作` and `参考邮件库录入` tabs, defaulting to `邮件写作`; removed message-agent `快速` / `精准` controls and stopped sending a chat mode so the backend default is used.
+- Corrected the message-agent upload boundary: reference/current request upload controls now accept and display only parseable documents (`.xlsx`, `.docx`, `.pdf`, `.md`, `.txt`, `.csv`); images are chat-only multimodal attachments, and `.msg`/old `.doc` selections are warned and ignored client-side.
+- Added frontend API client methods for `/message-agent` sessions, file upload, chat, draft patch, DOCX download, and session delete while leaving parsing, template extraction, AI generation, DOCX generation, and mail sending to the backend.
+- Latest frontend validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.
 - Implemented the `书院知识问答` frontend route at `/college-knowledge` with sidebar navigation and keep-alive page state.
 - Added a two-tab college knowledge page: `知识问答` chat with optional image upload and source display, plus `知识文档录入` for file/folder upload, relative-path preservation, document status, reindex, and delete actions.
 - Removed the Settings page `新增知识库` and `知识库条目` panels while keeping the legacy `知识库启用` setting toggle.
@@ -203,4 +209,41 @@ All passed.
 - Extended `apps/web/src/api/client.ts` with college knowledge document list/upload/reindex/delete and multipart chat methods using shared `CollegeKnowledge*` types.
 - Removed the Settings page `新增知识库` and `知识库条目` panels and the page-local `KnowledgeEntry` state/load flow; left `knowledgeBaseEnabled` intact for legacy email processing.
 - Added college knowledge chat, source, upload, status, and responsive styles to `apps/web/src/styles/app.css`.
+- Validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.
+
+### 2026-06-25 College Knowledge Chat Modes
+
+- Added `快速` / `精准` mode selection to the `/college-knowledge` Q&A toolbar and persisted the selected mode across refreshes.
+- Persisted visible chat turns in `localStorage` so refreshing the page no longer clears the conversation, and added a manual `清空会话` button.
+- Extended `apps/web/src/api/client.ts` to send `mode` with college knowledge multipart chat requests; frontend remains limited to UI state and API calls.
+- Validation passed: `pnpm --filter @harmonia/web typecheck`.
+
+### 2026-06-29 Message Agent Planning
+
+- Added `docs/message-agent-frontend-agent.md` as the frontend-only implementation brief for the independent `邮件写作 Agent` module.
+- Frontend scope: `/message-agent` sidebar/page, reference upload UI, current request chat with files/images, follow-up question display, draft preview/editing, source display, and DOCX download.
+- Boundary: frontend must not implement parsing, retrieval, template extraction, AI generation, DOCX generation, Outlook sending, or changes to the existing `书院知识问答` page.
+
+### 2026-06-29 Message Agent Frontend
+
+- Added `/message-agent` as a protected keep-alive route and sidebar item labeled `邮件写作 Agent`.
+- Implemented `apps/web/src/pages/MessageAgentPage.tsx` with reference mail library upload, current request file upload, text/image chat, follow-up question rendering, warning display, source reference cards, and session clearing.
+- Added editable draft preview for generated subject/body, manual save through `PATCH /message-agent/sessions/:id/draft`, copy controls, and DOCX download through `GET /message-agent/sessions/:id/draft.docx`.
+- Extended `apps/web/src/api/client.ts` with message-agent session, upload, chat, draft edit, DOCX download, and delete wrappers using shared `MessageAgent*` types.
+- Added compact operations-console styling for the message-agent layout, file/source/template status, follow-up cards, and draft editor.
+- Validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.
+
+### 2026-06-29 Message Agent Upload Boundary Correction
+
+- Removed image extensions from the reference library/current request upload accept list and changed those controls to explicitly say `可解析文档`.
+- Added client-side filtering so only `.xlsx`, `.docx`, `.pdf`, `.md`, `.txt`, and `.csv` enter the pending document upload queue.
+- Added clear warnings for selected images, `.msg`, old `.doc`, and other non-parseable files; chat images remain available only through `添加聊天图片`.
+- Updated status and source labels to distinguish parseable document states from chat image attachments.
+
+### 2026-06-29 Message Agent Tab Split
+
+- Added top tabs to `/message-agent`: `邮件写作` and `参考邮件库录入`, with `邮件写作` as the default.
+- Removed the message-agent `快速` / `精准` mode UI and no longer sends `mode` in message-agent chat requests.
+- Kept current request upload, chat, follow-up questions, generated source refs, draft edit/save, DOCX download, and `清空会话` in the `邮件写作` tab.
+- Moved reference library upload, reference folder upload, parsed reference source status, warning/unsupported statuses, and template list into `参考邮件库录入`.
 - Validation passed: `pnpm --filter @harmonia/web typecheck` and `pnpm --filter @harmonia/web build`.

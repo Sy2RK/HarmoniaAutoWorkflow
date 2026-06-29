@@ -1,6 +1,18 @@
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Archive, BookOpenText, FileCheck2, Gauge, Inbox, KeyRound, LogOut, MailCheck, NotebookTabs, SlidersHorizontal } from "lucide-react";
+import {
+  Archive,
+  BookOpenText,
+  BotMessageSquare,
+  FileCheck2,
+  Gauge,
+  Inbox,
+  KeyRound,
+  LogOut,
+  MailCheck,
+  NotebookTabs,
+  SlidersHorizontal
+} from "lucide-react";
 import { api } from "../api/client.js";
 
 const navItems = [
@@ -10,6 +22,7 @@ const navItems = [
   { to: "/forward-records", label: "转发记录", icon: Archive },
   { to: "/scholarship-check", label: "优秀毕业生核对", icon: FileCheck2 },
   { to: "/college-knowledge", label: "书院知识问答", icon: BookOpenText },
+  { to: "/message-agent", label: "邮件写作 Agent", icon: BotMessageSquare },
   { to: "/settings", label: "配置", icon: SlidersHorizontal }
 ];
 

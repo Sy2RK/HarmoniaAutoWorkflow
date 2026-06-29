@@ -102,12 +102,11 @@ If the backend returns `answerable: false`, show the answer and sources normally
 
 ### Chat State
 
-Keep chat state page-local for the first implementation unless the backend adds session persistence.
+Persist the visible chat turns and selected Q&A mode in browser `localStorage` so refreshing the page does not clear the active conversation.
 
-If backend exposes sessions:
-
-- Load recent sessions only after the backend contract is final.
-- Do not build session persistence in localStorage as a replacement for backend state.
+- Add a manual clear-session action in the Q&A UI.
+- Store only frontend chat display state and mode preference; do not store source knowledge documents or retrieval indexes in browser storage.
+- If backend later exposes durable multi-session history, migrate this UI state to the backend contract instead of duplicating it.
 
 ## Document Ingestion Tab
 
@@ -210,6 +209,12 @@ Expected route family:
 - `DELETE /college-knowledge/documents/:id`
 - `POST /college-knowledge/chat`
 
+Chat requests must include:
+
+- `message`: user question text.
+- `mode`: `"fast"` or `"precise"`; expose this as a user-selectable toggle in the Q&A interface.
+- `images`: optional image files.
+
 ## Expected Response Types
 
 Consume shared types from `packages/shared/src/index.ts` after the backend agent adds them.
@@ -253,6 +258,8 @@ If backend names differ, use the backend's final shared types.
 - `/college-knowledge` has two tabs: `知识问答` and `知识文档录入`.
 - Settings page no longer shows `新增知识库` or `知识库条目`.
 - The Q&A tab supports chat-style interaction and optional image upload.
+- The Q&A tab exposes `快速` and `精准` modes, persists the selected mode across refreshes, and sends it with each chat request.
+- The Q&A tab keeps visible chat turns after refresh and provides a manual clear-session button.
 - Assistant answers display source references returned by backend.
 - The document tab supports file/folder upload and shows backend ingestion status.
 - Old `.doc` and `.ppt` files are not silently accepted as ready if backend cannot convert them.
@@ -287,3 +294,12 @@ Record validation results in `docs/frontend-agent.md`.
 - Frontend validation passed:
   - `pnpm --filter @harmonia/web typecheck`
   - `pnpm --filter @harmonia/web build`
+
+### 2026-06-25 Chat Mode And Session Persistence
+
+- Added a Q&A mode selector with `快速` and `精准` options in the chat toolbar.
+- Persisted visible chat turns and selected mode in browser `localStorage` so page refresh does not clear the conversation.
+- Added a manual `清空会话` action that clears chat turns, draft message, selected images, and chat errors.
+- Extended the chat API client to submit `mode` with multipart chat requests; no retrieval, rerank, or answer-generation logic was added to the frontend.
+- Frontend validation passed:
+  - `pnpm --filter @harmonia/web typecheck`

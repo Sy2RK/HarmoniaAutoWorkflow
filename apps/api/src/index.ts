@@ -71,6 +71,7 @@ const scholarshipAi = env.SCHOLARSHIP_CHECK_AI_API_KEY
 const awardConfidenceAi = scholarshipAi;
 
 const collegeKnowledgeAi = scholarshipAi;
+const messageAgentAi = scholarshipAi;
 
 const app = await buildApp({
   env,
@@ -79,6 +80,7 @@ const app = await buildApp({
   scholarshipAi,
   awardConfidenceAi,
   collegeKnowledgeAi,
+  messageAgentAi,
   mailer,
   graph,
   attachmentRoot: env.ATTACHMENT_STORAGE_DIR

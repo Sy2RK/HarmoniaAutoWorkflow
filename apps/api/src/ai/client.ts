@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
-import type { MailCategory } from "@harmonia/shared";
+import type {
+  MailCategory,
+  MessageAgentAudience,
+  MessageAgentLanguage,
+  MessageAgentSlot,
+  MessageAgentTemplateCategory
+} from "@harmonia/shared";
 
 export type AwardInfo = {
   awardName: string | null;
@@ -99,6 +105,68 @@ export type CollegeKnowledgeAnswerResult = {
   warnings: string[];
 };
 
+export type MessageAgentTemplateExtractionInput = {
+  sourceTitle: string;
+  categoryHint: MessageAgentTemplateCategory;
+  text: string;
+};
+
+export type MessageAgentTemplateExtraction = {
+  category: MessageAgentTemplateCategory;
+  title: string;
+  language: MessageAgentLanguage;
+  audience: MessageAgentAudience;
+  subjectPattern: string | null;
+  bodySkeleton: string;
+  requiredSlots: MessageAgentSlot[];
+  optionalSlots: MessageAgentSlot[];
+  tone: string;
+  signatureStyle: string | null;
+};
+
+export type MessageAgentClassificationInput = {
+  message: string;
+  context: string;
+};
+
+export type MessageAgentClassification = {
+  category: MessageAgentTemplateCategory;
+  language: MessageAgentLanguage;
+  audience: MessageAgentAudience;
+  intent: string;
+  urgency: "low" | "normal" | "high";
+};
+
+export type MessageAgentDraftPlanInput = {
+  message: string;
+  context: string;
+  category: MessageAgentTemplateCategory;
+  templates: Array<{ id: string; title: string; category: MessageAgentTemplateCategory; bodySkeleton: string; requiredSlots: MessageAgentSlot[] }>;
+};
+
+export type MessageAgentDraftPlan = {
+  ready: boolean;
+  missingSlots: MessageAgentSlot[];
+  questions: Array<{ slotKey: string; question: string; required: boolean }>;
+  attachmentSuggestions: string[];
+};
+
+export type MessageAgentDraftGenerationInput = {
+  message: string;
+  context: string;
+  category: MessageAgentTemplateCategory;
+  language: MessageAgentLanguage;
+  audience: MessageAgentAudience;
+  templates: Array<{ id: string; title: string; bodySkeleton: string }>;
+};
+
+export type MessageAgentDraftGeneration = {
+  subject: string;
+  body: string;
+  attachmentSuggestions: string[];
+  warnings: string[];
+};
+
 export interface AiClient {
   classify(input: { subject: string; bodyText: string }): Promise<MailCategory | null>;
   extractJson(input: { task: string; subject: string; bodyText: string }): Promise<Record<string, unknown> | null>;
@@ -109,6 +177,11 @@ export interface AiClient {
   describeCollegeKnowledgeImage(input: { filePath: string; contentType: string }): Promise<string | null>;
   rerankCollegeKnowledge(input: CollegeKnowledgeRerankInput): Promise<CollegeKnowledgeRerankResult | null>;
   answerCollegeKnowledge(input: CollegeKnowledgeAnswerInput): Promise<CollegeKnowledgeAnswerResult | null>;
+  extractMessageAgentTemplate(input: MessageAgentTemplateExtractionInput): Promise<MessageAgentTemplateExtraction | null>;
+  classifyMessageAgentRequest(input: MessageAgentClassificationInput): Promise<MessageAgentClassification | null>;
+  planMessageAgentDraft(input: MessageAgentDraftPlanInput): Promise<MessageAgentDraftPlan | null>;
+  generateMessageAgentDraft(input: MessageAgentDraftGenerationInput): Promise<MessageAgentDraftGeneration | null>;
+  describeMessageAgentImage(input: { filePath: string; contentType: string }): Promise<string | null>;
 }
 
 export class NoopAiClient implements AiClient {
@@ -147,6 +220,26 @@ export class NoopAiClient implements AiClient {
   async answerCollegeKnowledge(_input: CollegeKnowledgeAnswerInput): Promise<CollegeKnowledgeAnswerResult | null> {
     return null;
   }
+
+  async extractMessageAgentTemplate(_input: MessageAgentTemplateExtractionInput): Promise<MessageAgentTemplateExtraction | null> {
+    return null;
+  }
+
+  async classifyMessageAgentRequest(_input: MessageAgentClassificationInput): Promise<MessageAgentClassification | null> {
+    return null;
+  }
+
+  async planMessageAgentDraft(_input: MessageAgentDraftPlanInput): Promise<MessageAgentDraftPlan | null> {
+    return null;
+  }
+
+  async generateMessageAgentDraft(_input: MessageAgentDraftGenerationInput): Promise<MessageAgentDraftGeneration | null> {
+    return null;
+  }
+
+  async describeMessageAgentImage(_input: { filePath: string; contentType: string }): Promise<string | null> {
+    return null;
+  }
 }
 
 export class OpenAiCompatibleClient implements AiClient {
@@ -160,21 +253,34 @@ export class OpenAiCompatibleClient implements AiClient {
     this.scholarshipProvider = normalizeProvider(config.scholarship ?? config.vision);
   }
 
-  private async chat(provider: OpenAiProviderConfig, messages: unknown[], json = false): Promise<string | null> {
+  private async chat(provider: OpenAiProviderConfig, messages: unknown[], json = false, timeoutMs = 90_000): Promise<string | null> {
     const model = await resolveProviderModel(provider);
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.1,
-        response_format: json ? { type: "json_object" } : undefined
-      })
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`${provider.baseUrl}/chat/completions`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${provider.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.1,
+          response_format: json ? { type: "json_object" } : undefined
+        })
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`OpenAI-compatible request timed out after ${timeoutMs}ms with model ${model}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`OpenAI-compatible request failed ${response.status} with model ${model}: ${text}`);
@@ -454,6 +560,150 @@ export class OpenAiCompatibleClient implements AiClient {
       return null;
     }
   }
+
+  async extractMessageAgentTemplate(input: MessageAgentTemplateExtractionInput): Promise<MessageAgentTemplateExtraction | null> {
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院办公室邮件模板抽取助手。只基于样例文本抽取可复用模板，不要补充未出现的政策细节。只输出 JSON：{category,title,language,audience,subjectPattern,bodySkeleton,requiredSlots,optionalSlots,tone,signatureStyle}。requiredSlots/optionalSlots 是 {key,label,description} 数组。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              sourceTitle: input.sourceTitle,
+              categoryHint: input.categoryHint,
+              text: input.text.slice(0, 6000)
+            },
+            null,
+            2
+          )
+        }
+      ],
+      true,
+      30_000
+    );
+    if (!content) return null;
+    try {
+      return normalizeMessageAgentTemplateExtraction(JSON.parse(content) as Record<string, unknown>, input);
+    } catch {
+      return null;
+    }
+  }
+
+  async classifyMessageAgentRequest(input: MessageAgentClassificationInput): Promise<MessageAgentClassification | null> {
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院邮件写作意图分类助手。只输出 JSON：{category,language,audience,intent,urgency}。category 必须为 facility_notice,youth_league,electricity_subsidy,function_room,property_staff,bfmo_coordination,recommendation_letter,event_registration,format_reminder,general_reply 之一。不要编造事实。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ message: input.message, context: input.context.slice(0, 6000) }, null, 2)
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeMessageAgentClassification(JSON.parse(content) as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  async planMessageAgentDraft(input: MessageAgentDraftPlanInput): Promise<MessageAgentDraftPlan | null> {
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是书院邮件写作信息完整性检查助手。只基于用户消息、上下文和候选模板判断缺失信息。不要生成邮件正文。只输出 JSON：{ready,missingSlots,questions,attachmentSuggestions}。如果关键信息缺失，ready=false 并提出简短追问。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              message: input.message,
+              context: input.context.slice(0, 6000),
+              category: input.category,
+              templates: input.templates.map((template) => ({ ...template, bodySkeleton: template.bodySkeleton.slice(0, 1800) }))
+            },
+            null,
+            2
+          )
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeMessageAgentDraftPlan(JSON.parse(content) as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  async generateMessageAgentDraft(input: MessageAgentDraftGenerationInput): Promise<MessageAgentDraftGeneration | null> {
+    const content = await this.chat(
+      this.textProvider,
+      [
+        {
+          role: "system",
+          content:
+            "你是祥波书院办公室邮件写作助手。只基于用户提供信息和候选模板生成可编辑草稿，不得编造政策、日期、地点、联系人、附件名或承诺。输出纯 JSON：{subject,body,attachmentSuggestions,warnings}。body 为纯文本邮件正文，保留自然换行，不要 Markdown。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              message: input.message,
+              context: input.context.slice(0, 8000),
+              category: input.category,
+              language: input.language,
+              audience: input.audience,
+              templates: input.templates.map((template) => ({ ...template, bodySkeleton: template.bodySkeleton.slice(0, 2500) }))
+            },
+            null,
+            2
+          )
+        }
+      ],
+      true
+    );
+    if (!content) return null;
+    try {
+      return normalizeMessageAgentDraftGeneration(JSON.parse(content) as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  async describeMessageAgentImage(input: { filePath: string; contentType: string }): Promise<string | null> {
+    const buffer = await readFile(input.filePath);
+    const dataUrl = `data:${input.contentType};base64,${buffer.toString("base64")}`;
+    return this.chat(this.visionProvider, [
+      {
+        role: "system",
+        content:
+          "你是邮件写作 Agent 的图片理解助手。请提取图片里的邮件内容、截图文字、称呼、日期、地点、要求和附件提示；不要代表用户写邮件，不要编造看不见的信息。"
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "请提取这张图片中可用于邮件写作的事实信息。" },
+          { type: "image_url", image_url: { url: dataUrl } }
+        ]
+      }
+    ]);
+  }
 }
 
 export type OpenAiProviderConfig = {
@@ -530,6 +780,110 @@ function normalizeCollegeKnowledgeAnswer(value: Record<string, unknown>, allowed
     sourceIds,
     warnings: stringArray(value.warnings)
   };
+}
+
+const messageAgentCategories: MessageAgentTemplateCategory[] = [
+  "facility_notice",
+  "youth_league",
+  "electricity_subsidy",
+  "function_room",
+  "property_staff",
+  "bfmo_coordination",
+  "recommendation_letter",
+  "event_registration",
+  "format_reminder",
+  "general_reply"
+];
+
+function normalizeMessageAgentTemplateExtraction(
+  value: Record<string, unknown>,
+  fallback: MessageAgentTemplateExtractionInput
+): MessageAgentTemplateExtraction {
+  return {
+    category: messageAgentCategory(value.category, fallback.categoryHint),
+    title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : fallback.sourceTitle,
+    language: messageAgentLanguage(value.language),
+    audience: messageAgentAudience(value.audience),
+    subjectPattern: typeof value.subjectPattern === "string" && value.subjectPattern.trim() ? value.subjectPattern.trim() : null,
+    bodySkeleton: typeof value.bodySkeleton === "string" && value.bodySkeleton.trim() ? value.bodySkeleton.trim() : fallback.text.slice(0, 4000),
+    requiredSlots: slotArray(value.requiredSlots),
+    optionalSlots: slotArray(value.optionalSlots),
+    tone: typeof value.tone === "string" && value.tone.trim() ? value.tone.trim() : "polite college-office tone",
+    signatureStyle: typeof value.signatureStyle === "string" && value.signatureStyle.trim() ? value.signatureStyle.trim() : null
+  };
+}
+
+function normalizeMessageAgentClassification(value: Record<string, unknown>): MessageAgentClassification {
+  const urgency = typeof value.urgency === "string" && ["low", "normal", "high"].includes(value.urgency) ? value.urgency : "normal";
+  return {
+    category: messageAgentCategory(value.category, "general_reply"),
+    language: messageAgentLanguage(value.language),
+    audience: messageAgentAudience(value.audience),
+    intent: typeof value.intent === "string" ? value.intent.trim() : "",
+    urgency: urgency as MessageAgentClassification["urgency"]
+  };
+}
+
+function normalizeMessageAgentDraftPlan(value: Record<string, unknown>): MessageAgentDraftPlan {
+  return {
+    ready: value.ready === true,
+    missingSlots: slotArray(value.missingSlots),
+    questions: questionArray(value.questions),
+    attachmentSuggestions: stringArray(value.attachmentSuggestions)
+  };
+}
+
+function normalizeMessageAgentDraftGeneration(value: Record<string, unknown>): MessageAgentDraftGeneration {
+  return {
+    subject: typeof value.subject === "string" ? value.subject.trim() : "",
+    body: typeof value.body === "string" ? value.body.trim() : "",
+    attachmentSuggestions: stringArray(value.attachmentSuggestions),
+    warnings: stringArray(value.warnings)
+  };
+}
+
+function messageAgentCategory(value: unknown, fallback: MessageAgentTemplateCategory): MessageAgentTemplateCategory {
+  return typeof value === "string" && messageAgentCategories.includes(value as MessageAgentTemplateCategory)
+    ? (value as MessageAgentTemplateCategory)
+    : fallback;
+}
+
+function messageAgentLanguage(value: unknown): MessageAgentLanguage {
+  return typeof value === "string" && ["zh", "en", "bilingual", "mixed"].includes(value) ? (value as MessageAgentLanguage) : "zh";
+}
+
+function messageAgentAudience(value: unknown): MessageAgentAudience {
+  return typeof value === "string" && ["student", "teachers_students", "department", "recommender", "staff", "unknown"].includes(value)
+    ? (value as MessageAgentAudience)
+    : "unknown";
+}
+
+function slotArray(value: unknown): MessageAgentSlot[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const key = typeof item.key === "string" ? item.key.trim() : "";
+      const label = typeof item.label === "string" ? item.label.trim() : key;
+      if (!key || !label) return null;
+      const slot: MessageAgentSlot = { key, label };
+      if (typeof item.description === "string" && item.description.trim()) slot.description = item.description.trim();
+      return slot;
+    })
+    .filter((item): item is MessageAgentSlot => Boolean(item));
+}
+
+function questionArray(value: unknown): Array<{ slotKey: string; question: string; required: boolean }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const slotKey = typeof item.slotKey === "string" ? item.slotKey.trim() : "";
+      const question = typeof item.question === "string" ? item.question.trim() : "";
+      if (!slotKey || !question) return null;
+      return { slotKey, question, required: item.required !== false };
+    })
+    .filter((item): item is { slotKey: string; question: string; required: boolean } => Boolean(item));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

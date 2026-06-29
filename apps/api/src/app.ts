@@ -26,6 +26,7 @@ import { syncMailbox } from "./worker/sync.js";
 import { registerScholarshipCheckRoutes } from "./scholarship-check/routes.js";
 import { registerAwardConfidenceRoutes } from "./award-confidence/routes.js";
 import { registerCollegeKnowledgeRoutes } from "./college-knowledge/routes.js";
+import { registerMessageAgentRoutes } from "./message-agent/routes.js";
 
 export type BuildAppOptions = {
   env: Env;
@@ -34,9 +35,12 @@ export type BuildAppOptions = {
   scholarshipAi?: AiClient;
   awardConfidenceAi?: AiClient;
   collegeKnowledgeAi?: AiClient;
+  messageAgentAi?: AiClient;
   scholarshipCheckStorageRoot?: string;
   awardConfidenceStorageRoot?: string;
   collegeKnowledgeStorageRoot?: string;
+  messageAgentStorageRoot?: string;
+  collegeKnowledgeRerankEnabled?: boolean;
   mailer: OutboundMailer;
   graph: GraphMailClient;
   attachmentRoot: string;
@@ -398,7 +402,13 @@ export async function buildApp(options: BuildAppOptions) {
     repo: options.repo,
     ai: options.collegeKnowledgeAi ?? options.scholarshipAi ?? options.ai,
     env: options.env,
+    ...(options.collegeKnowledgeRerankEnabled === undefined ? {} : { rerankEnabled: options.collegeKnowledgeRerankEnabled }),
     ...(options.collegeKnowledgeStorageRoot === undefined ? {} : { storageRoot: options.collegeKnowledgeStorageRoot })
+  });
+  await registerMessageAgentRoutes(app, {
+    ai: options.messageAgentAi ?? options.scholarshipAi ?? options.ai,
+    env: options.env,
+    ...(options.messageAgentStorageRoot === undefined ? {} : { storageRoot: options.messageAgentStorageRoot })
   });
 
   return app;

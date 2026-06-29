@@ -33,7 +33,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
         <div className="login-symbol">
           <Mail size={30} />
         </div>
-        <h1>学院公共邮箱自动化</h1>
+        <h1>祥波书院自动化工作台</h1>
         <label>
           账号
           <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" />

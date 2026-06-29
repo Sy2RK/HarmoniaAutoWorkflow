@@ -8,6 +8,7 @@ import { DashboardPage } from "./pages/DashboardPage.js";
 import { DraftReviewPage } from "./pages/DraftReviewPage.js";
 import { ForwardRecordsPage } from "./pages/ForwardRecordsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
+import { MessageAgentPage } from "./pages/MessageAgentPage.js";
 import { MessageDetailPage } from "./pages/MessageDetailPage.js";
 import { MessagesPage } from "./pages/MessagesPage.js";
 import { ScholarshipCheckPage } from "./pages/ScholarshipCheckPage.js";
@@ -20,6 +21,7 @@ const keptPages = [
   { path: "/forward-records", element: <ForwardRecordsPage /> },
   { path: "/scholarship-check", element: <ScholarshipCheckPage /> },
   { path: "/college-knowledge", element: <CollegeKnowledgePage /> },
+  { path: "/message-agent", element: <MessageAgentPage /> },
   { path: "/settings", element: <SettingsPage /> }
 ] as const;
 

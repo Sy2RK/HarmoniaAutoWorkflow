@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { collegeKnowledgeChatModes, type CollegeKnowledgeChatMode } from "@harmonia/shared";
 import type { AiClient } from "../ai/client.js";
 import type { Env } from "../config/env.js";
 import type { AppRepository } from "../db/repository.js";
@@ -17,8 +18,10 @@ import type { KnowledgeUploadFile } from "./types.js";
 const paramsSchema = z.object({ id: z.string().uuid() });
 const jsonChatSchema = z.object({
   question: z.string().min(1).max(4000).optional(),
-  message: z.string().min(1).max(4000).optional()
+  message: z.string().min(1).max(4000).optional(),
+  mode: z.enum(collegeKnowledgeChatModes).optional()
 });
+const chatModeSchema = z.enum(collegeKnowledgeChatModes);
 
 type MultipartPart =
   | {
@@ -41,11 +44,14 @@ export async function registerCollegeKnowledgeRoutes(
     ai: AiClient;
     env: Pick<Env, "NODE_ENV">;
     storageRoot?: string;
+    rerankEnabled?: boolean;
   }
 ) {
   const serviceStorageRoot =
     options.storageRoot ?? (options.env.NODE_ENV === "test" ? join(tmpdir(), "harmonia-college-knowledge", randomUUID()) : undefined);
-  const service = new CollegeKnowledgeService(options.repo, options.ai, collegeKnowledgeStorageRoot(serviceStorageRoot));
+  const service = new CollegeKnowledgeService(options.repo, options.ai, collegeKnowledgeStorageRoot(serviceStorageRoot), {
+    rerankEnabled: options.rerankEnabled ?? false
+  });
 
   app.get("/college-knowledge/documents", async () => service.listDocuments());
 
@@ -108,7 +114,7 @@ export async function registerCollegeKnowledgeRoutes(
     const body = jsonChatSchema.parse(request.body);
     const question = body.question ?? body.message;
     if (!question) return reply.code(400).send({ error: "COLLEGE_KNOWLEDGE_QUESTION_REQUIRED" });
-    return service.chat({ question, images: [] });
+    return service.chat({ question, images: [], ...(body.mode === undefined ? {} : { mode: body.mode }) });
   });
 }
 
@@ -122,6 +128,7 @@ async function handleMultipartChat(
   await mkdir(tempDir, { recursive: true });
   const images: CollegeKnowledgeImageInput[] = [];
   let question = "";
+  let mode: CollegeKnowledgeChatMode | undefined;
   try {
     let fileIndex = 0;
     for await (const rawPart of request.parts() as AsyncIterable<MultipartPart>) {
@@ -136,10 +143,12 @@ async function handleMultipartChat(
         fileIndex += 1;
       } else if (rawPart.fieldname === "question" || rawPart.fieldname === "message") {
         question = String(rawPart.value ?? "").trim();
+      } else if (rawPart.fieldname === "mode") {
+        mode = chatModeSchema.parse(String(rawPart.value ?? ""));
       }
     }
     if (!question) return reply.code(400).send({ error: "COLLEGE_KNOWLEDGE_QUESTION_REQUIRED" });
-    const result = await service.chat({ question, images });
+    const result = await service.chat({ question, images, ...(mode === undefined ? {} : { mode }) });
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "COLLEGE_KNOWLEDGE_CHAT_FAILED";

@@ -769,6 +769,43 @@ td {
   max-width: 1040px;
 }
 
+.chat-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mode-toggle button {
+  min-height: 30px;
+  padding: 4px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.mode-toggle button.active {
+  color: var(--jade-dark);
+  background: #dcefe8;
+}
+
+.mode-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .chat-messages {
   min-height: 360px;
   max-height: calc(100vh - 350px);
@@ -1002,6 +1039,201 @@ td .muted-row {
   color: var(--red);
   background: #fff0ef;
   border-color: #e8b4af;
+}
+
+.message-agent-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.message-agent-main,
+.message-agent-side {
+  min-width: 0;
+}
+
+.message-agent-chat-panel .chat-messages {
+  min-height: 420px;
+}
+
+.message-agent-file-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 32px;
+  align-items: center;
+}
+
+.message-agent-file-list div:first-child {
+  display: flex;
+}
+
+.message-agent-file-list span {
+  overflow-wrap: anywhere;
+}
+
+.message-agent-warning {
+  display: grid;
+  gap: 4px;
+}
+
+.message-agent-upload-progress {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  background: #f7fbfa;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.message-agent-upload-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.message-agent-upload-progress-heading span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.message-agent-upload-progress-bar span {
+  background: linear-gradient(90deg, var(--jade), var(--blue));
+}
+
+.message-agent-upload-completed span {
+  background: var(--jade);
+}
+
+.message-agent-upload-failed span {
+  background: var(--red);
+}
+
+.follow-up-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.follow-up-card {
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+  background: #fff7e8;
+  border: 1px solid #efcf95;
+  border-radius: 8px;
+}
+
+.follow-up-card strong {
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.follow-up-card span {
+  line-height: 1.55;
+}
+
+.message-agent-summary {
+  grid-template-columns: 54px 1fr;
+}
+
+.message-agent-draft-panel label {
+  margin-bottom: 12px;
+}
+
+.message-agent-draft-body {
+  min-height: 360px;
+  line-height: 1.6;
+}
+
+.message-agent-attachments {
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-agent-attachments span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  color: var(--blue);
+  background: #edf4ff;
+  border: 1px solid #bad0ee;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.message-agent-dirty {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.message-agent-source-list,
+.message-agent-template-list {
+  display: grid;
+  gap: 8px;
+}
+
+.message-agent-source-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  align-items: start;
+  padding: 9px;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.message-agent-source-item strong,
+.message-agent-source-item span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.message-agent-source-item div span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-agent-source-item p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.message-agent-file-ready {
+  color: var(--jade-dark);
+  background: #e9f6f1;
+  border-color: #b8dfd0;
+}
+
+.message-agent-file-partial {
+  color: var(--amber);
+  background: #fff7e8;
+  border-color: #efcf95;
+}
+
+.message-agent-file-unsupported,
+.message-agent-file-failed {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #e8b4af;
+}
+
+.message-agent-file-ignored {
+  color: var(--muted);
+  background: #f3f6f5;
 }
 
 .recent-jobs {
@@ -1328,6 +1560,7 @@ td .muted-row {
   .settings-grid,
   .scholarship-grid,
   .college-document-grid,
+  .message-agent-grid,
   .upload-grid,
   .upload-grid.single,
   .filter-bar {
@@ -1370,5 +1603,13 @@ td .muted-row {
   .chat-composer-actions .primary-action,
   .chat-composer-actions .file-action {
     width: 100%;
+  }
+
+  .message-agent-file-list div {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+
+  .message-agent-file-list div .muted-row {
+    grid-column: 1 / -1;
   }
 }

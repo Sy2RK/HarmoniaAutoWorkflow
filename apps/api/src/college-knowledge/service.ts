@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
-import type { CollegeKnowledgeChatResponse, CollegeKnowledgeDocument, CollegeKnowledgeSource } from "@harmonia/shared";
+import type { CollegeKnowledgeChatMode, CollegeKnowledgeChatResponse, CollegeKnowledgeDocument, CollegeKnowledgeSource } from "@harmonia/shared";
 import type { AiClient, CollegeKnowledgeAnswerResult } from "../ai/client.js";
 import type { AppRepository, CollegeKnowledgeChunkInput } from "../db/repository.js";
 import { estimateTokenCount } from "./chunker.js";
@@ -43,15 +43,22 @@ export type CollegeKnowledgeImageInput = {
   contentType: string | null;
 };
 
+export type CollegeKnowledgeServiceOptions = {
+  rerankEnabled?: boolean;
+};
+
 export class CollegeKnowledgeService {
   private readonly storageRoot: string;
+  private readonly rerankEnabled: boolean;
 
   constructor(
     private readonly repo: AppRepository,
     private readonly ai: AiClient,
-    storageRoot = "storage/college-knowledge"
+    storageRoot = "storage/college-knowledge",
+    options: CollegeKnowledgeServiceOptions = {}
   ) {
     this.storageRoot = collegeKnowledgeStorageRoot(storageRoot);
+    this.rerankEnabled = options.rerankEnabled ?? false;
   }
 
   async listDocuments(): Promise<{ items: CollegeKnowledgeDocument[]; total: number }> {
@@ -94,17 +101,18 @@ export class CollegeKnowledgeService {
     return deleted;
   }
 
-  async chat(input: { question: string; images: CollegeKnowledgeImageInput[] }): Promise<CollegeKnowledgeChatResponse> {
+  async chat(input: { question: string; images: CollegeKnowledgeImageInput[]; mode?: CollegeKnowledgeChatMode }): Promise<CollegeKnowledgeChatResponse> {
     const warnings: string[] = [];
     const imageText = await this.describeImages(input.images, warnings);
     const documents = await this.repo.listCollegeKnowledgeDocuments();
     const chunks = await this.repo.listCollegeKnowledgeChunks();
+    const rerankEnabled = input.mode ? input.mode === "precise" : this.rerankEnabled;
     const lexicalCandidates = retrieveCollegeKnowledge({
       question: input.question,
       imageText,
       documents,
       chunks,
-      limit: 40
+      limit: rerankEnabled ? 40 : 8
     });
     if (lexicalCandidates.length === 0) {
       return {
@@ -115,18 +123,18 @@ export class CollegeKnowledgeService {
       };
     }
 
-    const reranked = await this.rerank(input.question, imageText, lexicalCandidates, warnings);
-    const answer = await this.answer(input.question, imageText, reranked, warnings);
+    const selectedCandidates = rerankEnabled ? await this.rerank(input.question, imageText, lexicalCandidates, warnings) : lexicalCandidates.slice(0, 8);
+    const answer = await this.answer(input.question, imageText, selectedCandidates, warnings);
     if (!answer) {
       return {
         answerable: false,
         answer: "模型未配置或未返回可用答案，无法完成带来源引用的问答。",
-        sources: reranked.slice(0, 5).map((chunk) => this.sourceFromChunk(chunk, input.question)),
+        sources: selectedCandidates.slice(0, 5).map((chunk) => this.sourceFromChunk(chunk, input.question)),
         warnings: [...warnings, "MODEL_ANSWER_UNAVAILABLE"]
       };
     }
 
-    const selected = this.sourcesFromAnswer(answer, reranked, input.question);
+    const selected = this.sourcesFromAnswer(answer, selectedCandidates, input.question);
     return {
       answerable: answer.answerable,
       answer: answer.answer || (answer.answerable ? "" : "未在已上传的书院知识资料中找到明确依据。"),

@@ -115,7 +115,7 @@ describe("college knowledge backend", () => {
 
       const documents = await repo.listCollegeKnowledgeDocuments();
       expect(documents).toHaveLength(1);
-      expect(documents[0]).toMatchObject({ status: "ready", fileName: "faq.xlsx", chunkCount: 2 });
+      expect(documents[0]).toMatchObject({ status: "ready", fileName: "faq.xlsx", chunkCount: 3 });
       const chunks = await repo.listCollegeKnowledgeChunks(documents[0]!.id);
       expect(chunks.map((chunk) => chunk.locator)).toContain("FAQ!R2");
       expect(chunks.map((chunk) => chunk.locator)).toContain("FAQ!R3");
@@ -130,8 +130,22 @@ describe("college knowledge backend", () => {
       expect(chat.json()).toMatchObject({ answerable: true });
       expect(chat.json().answer).toContain("2026");
       expect(chat.json().sources[0]).toMatchObject({ documentName: "faq.xlsx", locator: "FAQ!R2" });
-      expect(ai.rerankInputs).toHaveLength(1);
+      expect(ai.rerankInputs).toHaveLength(0);
       expect(ai.answerInputs[0]?.sources[0]?.id).toBe(chat.json().sources[0].id);
+
+      const preciseBoundary = "college-precise-chat";
+      const preciseChat = await app.inject({
+        method: "POST",
+        url: "/college-knowledge/chat",
+        headers: { ...multipartHeaders(preciseBoundary), cookie },
+        payload: multipartBody(preciseBoundary, [
+          { name: "message", value: "Dorm deadline?" },
+          { name: "mode", value: "precise" }
+        ])
+      });
+      expect(preciseChat.statusCode).toBe(200);
+      expect(ai.rerankInputs, preciseChat.body).toHaveLength(1);
+      expect(ai.rerankInputs[0]?.candidates.length).toBeGreaterThan(0);
     } finally {
       await app.close();
       await rm(storageRoot, { recursive: true, force: true });
@@ -335,6 +349,7 @@ function faqWorkbook(): Buffer {
   const rows = [
     ["问题", "答案", "类别"],
     ["住宿期限是多少？", "住宿期限到 2026 年 6 月。", "住宿"],
+    ["Dorm deadline?", "Dorm deadline is June 2026.", "Dorm"],
     ["导师预约怎么提交？", "导师预约需要提前三个工作日提交。", "导师"]
   ];
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), "FAQ");

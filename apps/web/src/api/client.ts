@@ -4,6 +4,7 @@ import type {
   AttachmentRecord,
   AwardConfidenceJob,
   AwardConfidenceRow,
+  CollegeKnowledgeChatMode,
   CollegeKnowledgeChatResponse,
   CollegeKnowledgeDocument,
   DashboardSummary,
@@ -11,6 +12,14 @@ import type {
   ForwardRecord,
   KnowledgeEntry,
   MailMessage,
+  MessageAgentChatResponse,
+  MessageAgentDraft,
+  MessageAgentFileRole,
+  MessageAgentMessage,
+  MessageAgentSession,
+  MessageAgentSource,
+  MessageAgentTemplate,
+  MessageAgentUploadProgress,
   ReplyDraft,
   ScholarshipCheckJob,
   ScholarshipCheckRow
@@ -50,8 +59,32 @@ export type CollegeKnowledgeUploadResponse = {
 
 export type AskCollegeKnowledgeInput = {
   message: string;
+  mode: CollegeKnowledgeChatMode;
   images?: File[];
   sessionId?: string;
+};
+
+export type MessageAgentSessionDetail = {
+  session: MessageAgentSession;
+  messages: MessageAgentMessage[];
+  sources: MessageAgentSource[];
+  templates: MessageAgentTemplate[];
+  latestDraft: MessageAgentDraft | null;
+  uploadProgress: MessageAgentUploadProgress | null;
+};
+
+export type MessageAgentUploadResponse = {
+  session: MessageAgentSession;
+  sources: MessageAgentSource[];
+  templates: MessageAgentTemplate[];
+  warnings: string[];
+  uploadProgress: MessageAgentUploadProgress | null;
+};
+
+export type ChatMessageAgentInput = {
+  sessionId: string;
+  message: string;
+  images?: File[];
 };
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -138,12 +171,41 @@ export const api = {
   askCollegeKnowledge: (input: AskCollegeKnowledgeInput) => {
     const formData = new FormData();
     formData.append("message", input.message);
+    formData.append("mode", input.mode);
     if (input.sessionId) formData.append("sessionId", input.sessionId);
     input.images?.forEach((image) => {
       formData.append("images", image);
     });
     return uploadRequest<CollegeKnowledgeChatResponse>("/college-knowledge/chat", formData);
   },
+  createMessageAgentSession: () => request<{ session: MessageAgentSession }>("/message-agent/sessions", { method: "POST" }),
+  messageAgentSession: (sessionId: string) => request<MessageAgentSessionDetail>(`/message-agent/sessions/${sessionId}`),
+  uploadMessageAgentFiles: (sessionId: string, files: File[], fileRole: MessageAgentFileRole, relativePaths?: string[]) => {
+    const formData = new FormData();
+    formData.append("fileRole", fileRole);
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
+    if (relativePaths?.length) {
+      formData.append("relativePaths", JSON.stringify(relativePaths));
+    }
+    return uploadRequest<MessageAgentUploadResponse>(`/message-agent/sessions/${sessionId}/files`, formData);
+  },
+  chatMessageAgent: (input: ChatMessageAgentInput) => {
+    const formData = new FormData();
+    formData.append("message", input.message);
+    input.images?.forEach((image) => {
+      formData.append("images", image);
+    });
+    return uploadRequest<MessageAgentChatResponse>(`/message-agent/sessions/${input.sessionId}/chat`, formData);
+  },
+  updateMessageAgentDraft: (sessionId: string, subject: string, body: string) =>
+    request<{ draft: MessageAgentDraft }>(`/message-agent/sessions/${sessionId}/draft`, {
+      method: "PATCH",
+      body: JSON.stringify({ subject, body })
+    }),
+  downloadMessageAgentDraftDocx: (sessionId: string) => downloadRequest(`/message-agent/sessions/${sessionId}/draft.docx`),
+  deleteMessageAgentSession: (sessionId: string) => request<{ ok: true }>(`/message-agent/sessions/${sessionId}`, { method: "DELETE" }),
   runSync: () => request<{ received: number; processed: number }>("/sync/run", { method: "POST" }),
   createScholarshipCheckJob: (workbook: File, evidenceFiles: File[]) => {
     const formData = new FormData();
