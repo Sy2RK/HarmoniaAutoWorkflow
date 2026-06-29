@@ -258,6 +258,12 @@ type MessageAgentChatResponse = {
 };
 ```
 
+### `DELETE /message-agent/sessions/:id/messages`
+
+Clear persisted chat messages for one session while retaining uploaded sources, extracted templates, and the latest draft.
+
+Returns the same shape as `GET /message-agent/sessions/:id`.
+
 ### `PATCH /message-agent/sessions/:id/draft`
 
 Persist manual edits to generated subject/body.

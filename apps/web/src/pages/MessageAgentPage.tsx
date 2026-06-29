@@ -284,6 +284,7 @@ export function MessageAgentPage() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -633,6 +634,45 @@ export function MessageAgentPage() {
     }
   };
 
+  const clearChat = async () => {
+    const hasPendingInput = Boolean(message.trim() || chatImages.length);
+    if ((messages.length || hasPendingInput) && !window.confirm("确认清空当前对话记录和未发送内容？参考邮件库、上传文件和右侧草稿会保留。")) return;
+    setClearingChat(true);
+    setError("");
+    setNotice("");
+    try {
+      if (!session) {
+        setMessages([]);
+        setAssistantExtras({});
+        setLatestSourceRefs([]);
+        setWarnings([]);
+        setMessage("");
+        setChatImages([]);
+        setNotice("已清空对话记录。");
+        return;
+      }
+      const detail = await api.clearMessageAgentChat(session.id);
+      setSession(detail.session);
+      setMessages(detail.messages);
+      setSources(detail.sources);
+      setTemplates(detail.templates);
+      setDraft(detail.latestDraft);
+      setDraftSubject(detail.latestDraft?.subject ?? "");
+      setDraftBody(detail.latestDraft?.body ?? "");
+      setAssistantExtras({});
+      setLatestSourceRefs(latestDraftSourceRefs(detail.messages, detail.latestDraft));
+      setUploadProgress(detail.uploadProgress ?? null);
+      setWarnings([]);
+      setMessage("");
+      setChatImages([]);
+      setNotice("已清空对话记录。");
+    } catch (clearError) {
+      setError(readableError(clearError));
+    } finally {
+      setClearingChat(false);
+    }
+  };
+
   const clearSession = async () => {
     if (!window.confirm("确认清空当前邮件写作会话？")) return;
     setError("");
@@ -814,6 +854,16 @@ export function MessageAgentPage() {
                   <div className="panel-title">对话</div>
                   <span className="muted-hint">图片只作为聊天附件进入多模态理解，不进入文档解析库。</span>
                 </div>
+                <button
+                  className="icon-text"
+                  type="button"
+                  onClick={() => void clearChat()}
+                  disabled={clearingChat || sending || (!messages.length && !message.trim() && !chatImages.length)}
+                  title="清空对话记录和未发送内容"
+                >
+                  <Trash2 size={17} />
+                  <span>{clearingChat ? "清空中" : "清空对话"}</span>
+                </button>
               </div>
 
               <div className="chat-messages" aria-live="polite">

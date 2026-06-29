@@ -13,6 +13,15 @@ import { InMemoryRepository } from "../src/db/memory.js";
 import type { GraphMailClient } from "../src/graph/client.js";
 import type { OutboundMailer } from "../src/mail/outbound.js";
 
+const youthOrg = "\u56e2\u7ec4\u7ec7";
+const leagueApplication = "\u5165\u56e2\u5fd7\u613f\u4e66";
+const smartLeague = "\u667a\u6167\u56e2\u5efa";
+const facilityHeader = "\u7ef4\u62a4";
+const electricityHeader = "\u9001\u7535";
+const functionRoomHeader = "\u529f\u80fd\u623f";
+const propertyStaffHeader = "\u7269\u4e1a\u4eba\u5458";
+const formatHeader = "\u683c\u5f0f";
+
 const env: Env = {
   NODE_ENV: "test",
   PORT: 4000,
@@ -78,19 +87,19 @@ describe("message agent backend", () => {
       const upload = await uploadFiles(fixture.app, fixture.cookie, session.id, "reference", [
         {
           name: "files",
-          filename: "邮件常用库.xlsx",
+          filename: "common-library.xlsx",
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           value: commonLibraryWorkbook()
         },
         {
           name: "files",
-          filename: "~$送电.docx",
+          filename: "~$temp.docx",
           contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           value: await minimalDocx("temp")
         }
       ]);
       expect(upload.statusCode, upload.body).toBe(200);
-      expect(upload.json().warnings).toContain("IGNORED_TEMP_FILE:~$送电.docx");
+      expect(upload.json().warnings).toContain("IGNORED_TEMP_FILE:~$temp.docx");
       expectNoStoragePath(upload.json().sources);
       expect(upload.json().uploadProgress).toMatchObject({ active: false, phase: "completed", role: "reference", totalFiles: 2, processedFiles: 2 });
       expect(fixture.messageAgentAi.templateCalls.length).toBeGreaterThan(0);
@@ -133,7 +142,7 @@ describe("message agent backend", () => {
       const upload = await uploadFiles(fixture.app, fixture.cookie, session.id, "reference", [
         {
           name: "files",
-          filename: "送电.docx",
+          filename: "electricity.docx",
           contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           value: await minimalDocx("Notice on electricity subsidy allocation\n\nHarmonia College Office\nPlease verify the annual allocation details.")
         },
@@ -147,7 +156,7 @@ describe("message agent backend", () => {
       ]);
       expect(upload.statusCode).toBe(200);
       const sources = upload.json().sources as Array<{ fileName: string; status: string; text: string; warnings: string[] }>;
-      expect(sources.find((source) => source.fileName === "送电.docx")?.text.length).toBeGreaterThan(20);
+      expect(sources.find((source) => source.fileName === "electricity.docx")?.text.length).toBeGreaterThan(20);
       const portfolio = sources.find((source) => source.fileName === "electricity-portfolio.pdf");
       expect(portfolio?.status).toBe("ready");
       expect(portfolio?.text).toContain("Harmonia College Office");
@@ -172,7 +181,7 @@ describe("message agent backend", () => {
         method: "POST",
         url: `/message-agent/sessions/${session.id}/chat`,
         headers: { cookie: fixture.cookie },
-        payload: { message: "帮我写一个太阳能水箱维护通知", mode: "fast" }
+        payload: { message: "Please draft a maintenance notice.", mode: "fast" }
       });
       expect(chat.statusCode).toBe(200);
       expect(chat.json().draft).toBeNull();
@@ -188,23 +197,31 @@ describe("message agent backend", () => {
     const fixture = await createApp();
     try {
       const session = await createSeededSession(fixture);
+      const functionRoomPrompt = "A student entered function room B203 early and missed sign-in. Please reply that the missed sign-in record is cancelled.";
       const functionRoom = await fixture.app.inject({
         method: "POST",
         url: `/message-agent/sessions/${session.id}/chat`,
         headers: { cookie: fixture.cookie },
-        payload: { message: "学生提前进入功能房B203错过签到，请帮我回复已取消未签到记录。", mode: "fast" }
+        payload: {
+          message: functionRoomPrompt,
+          mode: "fast"
+        }
       });
       expect(functionRoom.statusCode).toBe(200);
-      expect(functionRoom.json().draft.body).toContain("祥波书院");
+      expect(functionRoom.json().draft.body).toContain("Harmonia College Office");
       expect(functionRoom.json().draft.sourceRefs).toHaveLength(functionRoom.json().sources.length);
       expectNoStoragePath(functionRoom.json().sources);
       expect((functionRoom.json().sources as Array<{ category: string }>).some((source) => source.category === "function_room")).toBe(true);
+      expect(countOccurrences(fixture.messageAgentAi.draftCalls.at(-1)?.context ?? "", functionRoomPrompt)).toBe(1);
 
       const youthLeague = await fixture.app.inject({
         method: "POST",
         url: `/message-agent/sessions/${session.id}/chat`,
         headers: { cookie: fixture.cookie },
-        payload: { message: "张三同学团组织关系转接缺入团志愿书，请回复补交材料。", mode: "fast" }
+        payload: {
+          message: `${youthOrg} transfer document missing for name Zhang San. Please ask the student to submit ${leagueApplication}.`,
+          mode: "fast"
+        }
       });
       expect(youthLeague.statusCode).toBe(200);
       expect(youthLeague.json().draft.plainText).toContain("Subject:");
@@ -222,7 +239,7 @@ describe("message agent backend", () => {
         method: "POST",
         url: `/message-agent/sessions/${session.id}/chat`,
         headers: { cookie: fixture.cookie },
-        payload: { message: "D栋将于6月30日9:00-12:00清洗饮水机，请写一封维护通知。", mode: "fast" }
+        payload: { message: "Please draft a maintenance notice for Block D water dispenser maintenance on 2026-06-20 from 10:00 to 12:00.", mode: "fast" }
       });
       expect(chat.statusCode).toBe(200);
       expect(chat.json().draft).toBeTruthy();
@@ -231,7 +248,7 @@ describe("message agent backend", () => {
         method: "PATCH",
         url: `/message-agent/sessions/${session.id}/draft`,
         headers: { cookie: fixture.cookie },
-        payload: { subject: "Edited Subject", body: "Edited body\n祥波书院办公室" }
+        payload: { subject: "Edited Subject", body: "Edited body\nHarmonia College Office" }
       });
       expect(edit.statusCode).toBe(200);
       expect(edit.json().draft.plainText).toContain("Edited Subject");
@@ -246,7 +263,41 @@ describe("message agent backend", () => {
       const documentXml = await zip.file("word/document.xml")?.async("string");
       expect(documentXml).toContain("Edited Subject");
       expect(documentXml).toContain("Edited body");
-      expect(documentXml).not.toContain("团组织关系转接");
+      expect(documentXml).not.toContain("youth");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("clears chat messages without deleting templates, sources, or the latest draft", async () => {
+    const fixture = await createApp();
+    try {
+      const session = await createSeededSession(fixture);
+      const chat = await fixture.app.inject({
+        method: "POST",
+        url: `/message-agent/sessions/${session.id}/chat`,
+        headers: { cookie: fixture.cookie },
+        payload: { message: "Please draft a maintenance notice for Block D water dispenser maintenance on 2026-06-20 from 10:00 to 12:00.", mode: "fast" }
+      });
+      expect(chat.statusCode).toBe(200);
+
+      const clear = await fixture.app.inject({
+        method: "DELETE",
+        url: `/message-agent/sessions/${session.id}/messages`,
+        headers: { cookie: fixture.cookie }
+      });
+      expect(clear.statusCode).toBe(200);
+      expect(clear.json().messages).toEqual([]);
+      expect(clear.json().latestDraft).toBeTruthy();
+      expect(clear.json().sources.length).toBeGreaterThan(0);
+      expect(clear.json().templates.length).toBeGreaterThan(0);
+      expect(clear.json().session.messageCount).toBe(0);
+      expect(clear.json().session.latestDraftId).toBe(chat.json().draft.id);
+
+      const detail = await fixture.app.inject({ method: "GET", url: `/message-agent/sessions/${session.id}`, headers: { cookie: fixture.cookie } });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().messages).toEqual([]);
+      expect(detail.json().latestDraft.id).toBe(chat.json().draft.id);
     } finally {
       await fixture.cleanup();
     }
@@ -262,7 +313,7 @@ describe("message agent backend", () => {
         url: `/message-agent/sessions/${session.id}/chat`,
         headers: { ...multipartHeaders(boundary), cookie: fixture.cookie },
         payload: multipartBody(boundary, [
-          { name: "message", value: "请读取这张图片" },
+          { name: "message", value: "Please read this image." },
           { name: "images", filename: "not-an-image.txt", contentType: "text/plain", value: Buffer.from("not image") }
         ])
       });
@@ -279,6 +330,10 @@ function expectNoStoragePath(items: unknown): void {
   for (const item of items as Array<Record<string, unknown>>) {
     expect(item).not.toHaveProperty("storagePath");
   }
+}
+
+function countOccurrences(value: string, search: string): number {
+  return value.split(search).length - 1;
 }
 
 class FakeMessageAgentAi extends NoopAiClient {
@@ -305,7 +360,7 @@ class FakeMessageAgentAi extends NoopAiClient {
     this.draftCalls.push(input);
     return {
       subject: `Draft ${input.category}`,
-      body: `同学你好：\n\n已根据 ${input.category} 模板生成草稿，请核对具体信息。\n\n顺祝，\n时祺\n\n祥波书院 | Harmonia College Office`,
+      body: `Dear student,\n\nGenerated draft for ${input.category}. Please verify details.\n\nBest regards,\nHarmonia College Office`,
       attachmentSuggestions: [],
       warnings: []
     };
@@ -351,7 +406,7 @@ async function createSeededSession(fixture: Awaited<ReturnType<typeof createApp>
   const upload = await uploadFiles(fixture.app, fixture.cookie, session.id, "reference", [
     {
       name: "files",
-      filename: "邮件常用库.xlsx",
+      filename: "common-library.xlsx",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       value: commonLibraryWorkbook()
     }
@@ -366,13 +421,7 @@ async function loginCookie(app: Awaited<ReturnType<typeof buildApp>>): Promise<s
   return String(login.headers["set-cookie"]);
 }
 
-async function uploadFiles(
-  app: Awaited<ReturnType<typeof buildApp>>,
-  cookie: string,
-  sessionId: string,
-  role: string,
-  parts: MultipartTestPart[]
-) {
+async function uploadFiles(app: Awaited<ReturnType<typeof buildApp>>, cookie: string, sessionId: string, role: string, parts: MultipartTestPart[]) {
   const boundary = `message-agent-${Math.random().toString(16).slice(2)}`;
   return app.inject({
     method: "POST",
@@ -385,15 +434,15 @@ async function uploadFiles(
 function commonLibraryWorkbook(): Buffer {
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.aoa_to_sheet([
-    ["物业施工维护相关", "【团组织相关】", "【送电】", "功能房", "物业人员", "BFMO", ""],
+    [facilityHeader, youthOrg, electricityHeader, functionRoomHeader, propertyStaffHeader, "BFMO", formatHeader],
     [
-      "Harmonia College Facilities Maintenance Notice\n太阳能水箱维护通知，请说明项目、地点、日期和时间。",
-      "团组织关系转接回复：请同学补交入团志愿书并按要求命名材料。",
-      "Notice on electricity subsidy allocation at Harmonia College\n年度送电操作通知。",
-      "功能房B203预约与签到回复，可取消未签到记录并提醒遵守预约规则。",
-      "物业人员与保洁服务反馈回复，请说明处理进展。",
-      "BFMO coordination request for construction schedule and facility support.",
-      "邮件格式提醒：请补充称呼、正文和落款。"
+      "Harmonia College Facilities Maintenance Notice. Block D water dispenser maintenance on 2026-06-20 from 10:00 to 12:00.",
+      `${youthOrg} transfer reply. Ask the student to submit ${leagueApplication} in ${smartLeague}.`,
+      "Notice on electricity subsidy allocation at Harmonia College. Annual kWh allocation notice.",
+      "Function room B203 reservation and missed sign-in reply. The missed sign-in record can be cancelled.",
+      "Property staff and cleaning service feedback reply. Explain the handling progress.",
+      "BFMO Buildings and Facilities coordination request for construction schedule and facility support.",
+      "Email format reminder. Please include salutation, body, closing, and signature."
     ]
   ]);
   XLSX.utils.book_append_sheet(workbook, worksheet, "Library");

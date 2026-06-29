@@ -166,6 +166,7 @@ Exact names depend on backend implementation, but expected endpoints are:
 - `GET /message-agent/sessions/:id`
 - `POST /message-agent/sessions/:id/files`
 - `POST /message-agent/sessions/:id/chat`
+- `DELETE /message-agent/sessions/:id/messages`
 - `PATCH /message-agent/sessions/:id/draft`
 - `GET /message-agent/sessions/:id/draft.docx`
 - `DELETE /message-agent/sessions/:id`

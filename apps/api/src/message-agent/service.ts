@@ -243,6 +243,16 @@ export class MessageAgentService {
     return this.withSessionLock(sessionId, () => this.chatUnlocked(sessionId, input));
   }
 
+  async clearChat(sessionId: string): Promise<MessageAgentSessionDetail | null> {
+    return this.withSessionLock(sessionId, async () => {
+      const state = await this.loadState(sessionId);
+      if (!state) return null;
+      state.messages = [];
+      await this.saveState(state);
+      return this.publicDetail(state);
+    });
+  }
+
   private async chatUnlocked(
     sessionId: string,
     input: { message: string; mode: MessageAgentChatMode; images: MessageAgentImageFile[] }
@@ -251,9 +261,9 @@ export class MessageAgentService {
     if (!state) return null;
     const warnings: string[] = [];
     const imageText = await this.describeImages(input.images, warnings);
+    const context = this.contextFor(state, input.message, imageText);
     const userMessage = this.message("user", input.message, imageText ? { imageText } : {});
     state.messages.push(userMessage);
-    const context = this.contextFor(state, input.message, imageText);
     const classification = (await this.classify(input.message, context, warnings)) ?? classifyByText(context);
     const templates = retrieveTemplates({ templates: state.templates, query: context, category: classification.category, limit: 8 });
     const sourceRefs = sourceRefsForTemplates(templates, state.sources, context);

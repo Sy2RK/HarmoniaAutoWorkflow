@@ -205,6 +205,7 @@ export const api = {
       body: JSON.stringify({ subject, body })
     }),
   downloadMessageAgentDraftDocx: (sessionId: string) => downloadRequest(`/message-agent/sessions/${sessionId}/draft.docx`),
+  clearMessageAgentChat: (sessionId: string) => request<MessageAgentSessionDetail>(`/message-agent/sessions/${sessionId}/messages`, { method: "DELETE" }),
   deleteMessageAgentSession: (sessionId: string) => request<{ ok: true }>(`/message-agent/sessions/${sessionId}`, { method: "DELETE" }),
   runSync: () => request<{ received: number; processed: number }>("/sync/run", { method: "POST" }),
   createScholarshipCheckJob: (workbook: File, evidenceFiles: File[]) => {

@@ -121,6 +121,13 @@ export async function registerMessageAgentRoutes(
     return response;
   });
 
+  app.delete("/message-agent/sessions/:id/messages", async (request, reply) => {
+    const params = paramsSchema.parse(request.params);
+    const detail = await service.clearChat(params.id);
+    if (!detail) return reply.code(404).send({ error: "MESSAGE_AGENT_SESSION_NOT_FOUND" });
+    return detail;
+  });
+
   app.patch("/message-agent/sessions/:id/draft", async (request, reply) => {
     const params = paramsSchema.parse(request.params);
     const body = patchDraftSchema.parse(request.body);
